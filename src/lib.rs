@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic_protocol_with_small_numbers() {
+    fn test_protocol_with_small_hardcoded_numbers() {
         let protocol = Protocol {
             p: BigUint::from(23u32),
             q: BigUint::from(11u32),
@@ -134,5 +134,66 @@ mod tests {
         let forged_s = protocol.solve_challenge(&k, &c, &forged_x);
         let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &forged_s);
         assert!(!verified);
+    }
+
+    #[test]
+    fn test_protocol_with_random_numbers() {
+        let protocol = Protocol {
+            p: BigUint::from(23u32),
+            q: BigUint::from(11u32),
+            g: BigUint::from(4u32),
+            h: BigUint::from(9u32),
+        };
+
+        let x = BigUint::from(6u32);
+        let k = generate_random_biguint_below(&protocol.q);
+
+        let (y1, y2) = protocol.compute_parameters(&x);
+        assert_eq!(y1, BigUint::from(2u32));
+        assert_eq!(y2, BigUint::from(3u32));
+
+        let (r1, r2) = protocol.compute_parameters(&k);
+
+        let c = generate_random_biguint_below(&protocol.q);
+        let s = protocol.solve_challenge(&k, &c, &x);
+
+        let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &s);
+        assert!(verified);
+    }
+
+    #[test]
+    fn test_1024bit_group_with_160bit_constants() {
+        let Protocol { p, q, g, h } = generate_1024bit_group_with_160bit_constants();
+        let protocol = Protocol { p, q, g, h };
+
+        let x = generate_random_biguint_below(&protocol.q);
+        let (y1, y2) = protocol.compute_parameters(&x);
+
+        let k = generate_random_biguint_below(&protocol.q);
+        let (r1, r2) = protocol.compute_parameters(&k);
+
+        let c = generate_random_biguint_below(&protocol.q);
+        let s = protocol.solve_challenge(&k, &c, &x);
+
+        let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &s);
+        assert!(verified);
+    }
+
+    #[test]
+    fn test_2048bit_group_with_256bit_constants() {
+        let Protocol { p, q, g, h } = generate_2048bit_group_with_256bit_constants();
+        let protocol = Protocol { p, q, g, h };
+
+        let x = generate_random_biguint_below(&protocol.q);
+        let (y1, y2) = protocol.compute_parameters(&x);
+
+        let k = generate_random_biguint_below(&protocol.q);
+        let (r1, r2) = protocol.compute_parameters(&k);
+
+        let c = generate_random_biguint_below(&protocol.q);
+        let s = protocol.solve_challenge(&k, &c, &x);
+
+        let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &s);
+        assert!(verified);
     }
 }
