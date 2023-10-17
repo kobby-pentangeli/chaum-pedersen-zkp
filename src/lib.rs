@@ -1,6 +1,5 @@
 use num_bigint::BigUint;
 
-#[derive(Debug)]
 pub struct Protocol {
     pub p: BigUint,
     pub q: BigUint,
@@ -45,5 +44,44 @@ impl Protocol {
                 .modpow(&BigUint::from(1u32), &self.p);
 
         cond1 && cond2
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_protocol_with_small_numbers() {
+        let protocol = Protocol {
+            p: BigUint::from(23u32),
+            q: BigUint::from(11u32),
+            g: BigUint::from(4u32),
+            h: BigUint::from(9u32),
+        };
+
+        let x = BigUint::from(6u32);
+        let k = BigUint::from(7u32);
+
+        let (y1, y2) = protocol.compute_parameters(&x);
+        assert_eq!(y1, BigUint::from(2u32));
+        assert_eq!(y2, BigUint::from(3u32));
+
+        let (r1, r2) = protocol.compute_parameters(&k);
+        assert_eq!(r1, BigUint::from(8u32));
+        assert_eq!(r2, BigUint::from(4u32));
+
+        let c = BigUint::from(4u32);
+        let s = protocol.solve_challenge(&k, &c, &x);
+        assert_eq!(s, BigUint::from(5u32));
+
+        let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &s);
+        assert!(verified);
+
+        // forged secrets
+        let forged_x = BigUint::from(7u32);
+        let forged_s = protocol.solve_challenge(&k, &c, &forged_x);
+        let verified = protocol.verify_proof(&r1, &r2, &y1, &y2, &c, &forged_s);
+        assert!(!verified);
     }
 }
