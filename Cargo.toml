@@ -13,3 +13,11 @@ tonic = "0.10"
 
 [build-dependencies]
 tonic-build = "0.10"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
