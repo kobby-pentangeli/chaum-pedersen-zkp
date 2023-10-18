@@ -1,0 +1,56 @@
+syntax = "proto3";
+package chaum_pedersen_auth;
+
+/*
+ * Prover registers on the server by sending:
+ * y1 = g^x (mod p)
+ * y2 = h^x (mod p),
+ * where `x` is the prover's secret value.
+ */
+message RegistrationRequest {
+    string user = 1;
+    bytes y1 = 2;
+    bytes y2 = 3;
+}
+
+message RegistrationResponse {}
+
+/*
+ * Prover asks for a challenge from the server by sending:
+ * r1 = g^k (mod p)
+ * r2 = h^k (mod p),
+ * where `k` is the prover's randomly-chosen param.
+ *
+ * Verifier responds with the challenge `c`.
+ */
+message AuthChallengeRequest {
+    string user = 1;
+    bytes r1 = 2;
+    bytes r2 = 3;
+}
+
+message AuthChallengeResponse {
+    string auth_id = 1;
+    bytes c = 2;
+}
+
+/*
+ * Prover sends the solution to the challenge,
+ * `s = k - c * x (mod q)` to the verifier.
+ *
+ * Verifier responds with the session ID if the solution is correct.
+ */
+message AuthVerificationRequest {
+    string auth_id = 1;
+    bytes s = 2;
+}
+
+message AuthVerificationResponse {
+    string session_id = 1;
+}
+
+service Auth {
+    rpc Register(RegistrationRequest) returns (RegistrationResponse) {}
+    rpc CreateAuthChallenge(AuthChallengeRequest) returns (AuthChallengeResponse) {}
+    rpc VerifyAuth(AuthVerificationRequest) returns (AuthVerificationResponse) {}
+}
