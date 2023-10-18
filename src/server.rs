@@ -7,7 +7,7 @@ use std::{collections::HashMap, sync::Mutex};
 use tonic::{transport::Server, Code, Request, Response, Status};
 
 mod chaum_pedersen_auth {
-    include!("../build/chaum_pedersen_auth.rs");
+    include!("./chaum_pedersen_auth.rs");
 }
 
 use chaum_pedersen_auth::{

@@ -1,9 +1,8 @@
 /target
-/Cargo.lock
 
 .DS_Store
 .vscode
 
-/build
+/src/chaum_pedersen_auth.rs
 
 TODO

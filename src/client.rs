@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use std::io;
 
 mod chaum_pedersen_auth {
-    include!("../build/chaum_pedersen_auth.rs");
+    include!("./chaum_pedersen_auth.rs");
 }
 
 use chaum_pedersen_auth::{
