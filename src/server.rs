@@ -6,7 +6,7 @@ use num_bigint::BigUint;
 use std::{collections::HashMap, sync::Mutex};
 use tonic::{transport::Server, Code, Request, Response, Status};
 
-pub mod chaum_pedersen_auth {
+mod chaum_pedersen_auth {
     include!("../build/chaum_pedersen_auth.rs");
 }
 
