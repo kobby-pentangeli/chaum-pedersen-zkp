@@ -26,7 +26,7 @@ async fn main() {
 
     let mut client = AuthClient::connect("http://127.0.0.1:50051")
         .await
-        .expect("Could not connect to server!");
+        .expect("Could not connect to server!❌");
     println!("✅ Connection established!");
 
     println!("Please state username:");
@@ -49,11 +49,12 @@ async fn main() {
         y1: y1.to_bytes_be(),
         y2: y2.to_bytes_be(),
     };
-    let _registration_response = client
-        .register(registration_request)
-        .await
-        .expect("Couldn't register user");
-    println!("✅ Registration was successful");
+
+    if let Ok(_) = client.register(registration_request).await {
+        println!("✅ Registration was successful");
+    } else {
+        println!("Failed to register user.❌");
+    }
 
     let k = generate_random_biguint_below(&q);
     let (r1, r2) = protocol.compute_parameters(&k);
