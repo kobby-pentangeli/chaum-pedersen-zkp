@@ -39,7 +39,6 @@ impl Protocol {
     ///
     /// The computed `s` value.
     pub fn solve_challenge(&self, k: &BigUint, c: &BigUint, x: &BigUint) -> BigUint {
-        // s = (k - c * x) (mod q)
         if *k >= c * x {
             return (k - c * x).modpow(&BigUint::from(1u32), &self.q);
         }
@@ -123,8 +122,10 @@ pub fn generate_1024bit_group_with_160bit_constants() -> Protocol {
     let q =
         BigUint::from_bytes_be(&hex::decode("F518AA8781A8DF278ABA4E7D64B7CB9D49462353").unwrap());
 
-    // Another generator
-    let h = g.modpow(&generate_random_biguint_below(&q), &p);
+    // Another generator:
+    // h = g^i, where i == 266FEA1E5C41564B777E69
+    let i = BigUint::from_bytes_be(&hex::decode("266FEA1E5C41564B777E69").unwrap());
+    let h = g.modpow(&i, &p);
 
     Protocol { p, q, g, h }
 }
@@ -147,8 +148,10 @@ pub fn generate_2048bit_group_with_256bit_constants() -> Protocol {
         &hex::decode("8CF83642A709A097B447997640129DA299B1A47D1EB3750BA308B0FE64F5FBD3").unwrap(),
     );
 
-    // Another generator
-    let h = g.modpow(&generate_random_biguint_below(&q), &p);
+    // Another generator:
+    // h = g^i, where i == 266FEA1E5C41564B777E69
+    let i = BigUint::from_bytes_be(&hex::decode("266FEA1E5C41564B777E69").unwrap());
+    let h = g.modpow(&i, &p);
 
     Protocol { p, q, g, h }
 }
