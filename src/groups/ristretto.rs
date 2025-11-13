@@ -9,31 +9,52 @@ use zeroize::Zeroize;
 
 use crate::{Error, Group, Result};
 
+/// Number of bytes in a Ristretto255 scalar or compressed element (32 bytes).
+const RISTRETTO_BYTES: usize = 32;
+
+/// Number of bytes used for wide scalar reduction (64 bytes).
+const WIDE_REDUCTION_BYTES: usize = 64;
+
+/// Domain separation tag for deriving the second generator `h`.
+///
+/// This ensures `h` is deterministically derived and cryptographically independent
+/// from the base generator `g`. Changing this value produces a different generator.
+const GENERATOR_H_DST: &[u8] = b"chaum-pedersen-zkp-v1.0.0-generator-h";
+
+/// Ristretto255 group implementation providing fast, prime-order elliptic curve operations.
 #[derive(Clone, Debug)]
 pub struct Ristretto255;
 
+/// Scalar in the Ristretto255 group.
+///
+/// Scalars are automatically zeroized when dropped for security.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 pub struct Scalar(DalekScalar);
 
+/// Element (point) in the Ristretto255 group.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Element(RistrettoPoint);
 
 impl Scalar {
+    /// Creates a new scalar from a curve25519_dalek Scalar.
     pub fn new(value: DalekScalar) -> Self {
         Self(value)
     }
 
+    /// Returns a reference to the inner curve25519_dalek Scalar.
     pub fn inner(&self) -> &DalekScalar {
         &self.0
     }
 }
 
 impl Element {
+    /// Creates a new element from a RistrettoPoint.
     pub fn new(value: RistrettoPoint) -> Self {
         Self(value)
     }
 
+    /// Returns a reference to the inner RistrettoPoint.
     pub fn inner(&self) -> &RistrettoPoint {
         &self.0
     }
@@ -53,20 +74,21 @@ impl Group for Ristretto255 {
 
     fn generator_h() -> Self::Element {
         let mut hasher = Sha512::new();
-        hasher.update(b"chaum-pedersen-zkp-v1.0.0-generator-h");
+        hasher.update(GENERATOR_H_DST);
         let hash = hasher.finalize();
         Element(RistrettoPoint::from_uniform_bytes(&hash.into()))
     }
 
     fn scalar_from_bytes(bytes: &[u8]) -> Result<Self::Scalar> {
-        if bytes.len() != 32 {
+        if bytes.len() != RISTRETTO_BYTES {
             return Err(Error::InvalidScalar(format!(
-                "Expected 32 bytes, got {}",
+                "Expected {} bytes, got {}",
+                RISTRETTO_BYTES,
                 bytes.len()
             )));
         }
 
-        let mut arr = [0u8; 32];
+        let mut arr = [0u8; RISTRETTO_BYTES];
         arr.copy_from_slice(bytes);
 
         match DalekScalar::from_canonical_bytes(arr).into() {
@@ -82,14 +104,15 @@ impl Group for Ristretto255 {
     }
 
     fn element_from_bytes(bytes: &[u8]) -> Result<Self::Element> {
-        if bytes.len() != 32 {
+        if bytes.len() != RISTRETTO_BYTES {
             return Err(Error::InvalidGroupElement(format!(
-                "Expected 32 bytes, got {}",
+                "Expected {} bytes, got {}",
+                RISTRETTO_BYTES,
                 bytes.len()
             )));
         }
 
-        let mut arr = [0u8; 32];
+        let mut arr = [0u8; RISTRETTO_BYTES];
         arr.copy_from_slice(bytes);
 
         match CompressedRistretto(arr).decompress() {
@@ -105,7 +128,7 @@ impl Group for Ristretto255 {
     }
 
     fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Self::Scalar {
-        let mut bytes = [0u8; 64];
+        let mut bytes = [0u8; WIDE_REDUCTION_BYTES];
         rng.fill_bytes(&mut bytes);
         Scalar(DalekScalar::from_bytes_mod_order_wide(&bytes))
     }

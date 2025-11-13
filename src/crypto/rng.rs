@@ -1,8 +1,13 @@
 use rand_core::{CryptoRng, OsRng, RngCore};
 
+/// Cryptographically secure random number generator.
+///
+/// This is a thin wrapper around `OsRng` that provides a consistent interface
+/// for cryptographic randomness throughout the library.
 pub struct SecureRng(OsRng);
 
 impl SecureRng {
+    /// Creates a new cryptographically secure random number generator.
     pub fn new() -> Self {
         Self(OsRng)
     }

@@ -29,7 +29,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
-// #![warn(missing_docs, clippy::all)]
+#![warn(missing_docs, clippy::all)]
 
 /// Cryptographic primitives and traits.
 pub mod crypto;
@@ -42,4 +42,5 @@ pub use crypto::{Group, SecureRng};
 pub use error::Error;
 pub use groups::{Rfc5114, Ristretto255};
 
+/// A specialized Result type for Chaum-Pedersen operations.
 pub type Result<T> = core::result::Result<T, Error>;

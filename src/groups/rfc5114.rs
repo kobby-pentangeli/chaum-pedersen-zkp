@@ -7,13 +7,24 @@ use zeroize::Zeroize;
 use crate::crypto::field::mod_pow;
 use crate::{Error, Group, Result};
 
+/// Number of bytes in a scalar (256 bits).
+const SCALAR_BYTES: usize = 32;
+
+/// Number of bytes in a group element (2048 bits).
+const ELEMENT_BYTES: usize = 256;
+
+/// RFC 5114 Group implementation using 2048-bit MODP group with 256-bit order subgroup.
 #[derive(Clone, Debug)]
 pub struct Rfc5114;
 
+/// Scalar in the RFC 5114 group (256-bit integer modulo q).
+///
+/// Scalars are automatically zeroized when dropped for security.
 #[derive(Clone, Debug, Eq, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct Scalar(U256);
 
+/// Element in the RFC 5114 group (2048-bit integer modulo p).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Element(U2048);
 
@@ -32,10 +43,10 @@ impl<'de> Deserialize<'de> for Scalar {
         D: Deserializer<'de>,
     {
         let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        if bytes.len() != 32 {
+        if bytes.len() != SCALAR_BYTES {
             return Err(serde::de::Error::invalid_length(bytes.len(), &"32 bytes"));
         }
-        let mut arr = [0u8; 32];
+        let mut arr = [0u8; SCALAR_BYTES];
         arr.copy_from_slice(&bytes);
         Ok(Scalar(U256::from_be_bytes(arr)))
     }
@@ -56,10 +67,10 @@ impl<'de> Deserialize<'de> for Element {
         D: Deserializer<'de>,
     {
         let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        if bytes.len() != 256 {
+        if bytes.len() != ELEMENT_BYTES {
             return Err(serde::de::Error::invalid_length(bytes.len(), &"256 bytes"));
         }
-        let mut arr = [0u8; 256];
+        let mut arr = [0u8; ELEMENT_BYTES];
         arr.copy_from_slice(&bytes);
         Ok(Element(U2048::from_be_bytes(arr)))
     }
@@ -72,20 +83,24 @@ impl ConstantTimeEq for Scalar {
 }
 
 impl Scalar {
+    /// Creates a new scalar from a U256 value.
     pub fn new(value: U256) -> Self {
         Self(value)
     }
 
+    /// Returns a reference to the inner U256 value.
     pub fn inner(&self) -> &U256 {
         &self.0
     }
 }
 
 impl Element {
+    /// Creates a new element from a U2048 value.
     pub fn new(value: U2048) -> Self {
         Self(value)
     }
 
+    /// Returns a reference to the inner U2048 value.
     pub fn inner(&self) -> &U2048 {
         &self.0
     }
@@ -114,9 +129,10 @@ impl Group for Rfc5114 {
     }
 
     fn scalar_from_bytes(bytes: &[u8]) -> Result<Self::Scalar> {
-        if bytes.len() != 32 {
+        if bytes.len() != SCALAR_BYTES {
             return Err(Error::InvalidScalar(format!(
-                "Expected 32 bytes, got {}",
+                "Expected {} bytes, got {}",
+                SCALAR_BYTES,
                 bytes.len()
             )));
         }
@@ -138,9 +154,10 @@ impl Group for Rfc5114 {
     }
 
     fn element_from_bytes(bytes: &[u8]) -> Result<Self::Element> {
-        if bytes.len() != 256 {
+        if bytes.len() != ELEMENT_BYTES {
             return Err(Error::InvalidGroupElement(format!(
-                "Expected 256 bytes, got {}",
+                "Expected {} bytes, got {}",
+                ELEMENT_BYTES,
                 bytes.len()
             )));
         }
@@ -180,9 +197,9 @@ impl Group for Rfc5114 {
 
     fn scalar_mul(element: &Self::Element, scalar: &Self::Scalar) -> Self::Element {
         let p = rfc5114_p();
-        let mut exp_bytes = [0u8; 256];
+        let mut exp_bytes = [0u8; ELEMENT_BYTES];
         let scalar_bytes = scalar.0.to_be_bytes();
-        exp_bytes[256 - 32..].copy_from_slice(&scalar_bytes);
+        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&scalar_bytes);
         let exp = U2048::from_be_bytes(exp_bytes);
         Element(
             mod_pow(&element.0, &exp, &p)
@@ -219,8 +236,8 @@ impl Group for Rfc5114 {
             return Ok(());
         }
 
-        let mut q_bytes = [0u8; 256];
-        q_bytes[256 - 32..].copy_from_slice(&q.to_be_bytes());
+        let mut q_bytes = [0u8; ELEMENT_BYTES];
+        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q.to_be_bytes());
         let q_2048 = U2048::from_be_bytes(q_bytes);
         let result = mod_pow(&element.0, &q_2048, &p)?;
         if !bool::from(result.ct_eq(&U2048::ONE)) {
@@ -268,21 +285,21 @@ impl Group for Rfc5114 {
         let q = rfc5114_q();
         let q_minus_2 = q.wrapping_sub(&U256::from_u8(2));
 
-        let mut exp_bytes = [0u8; 256];
-        exp_bytes[256 - 32..].copy_from_slice(&q_minus_2.to_be_bytes());
+        let mut exp_bytes = [0u8; ELEMENT_BYTES];
+        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q_minus_2.to_be_bytes());
         let exp_2048 = U2048::from_be_bytes(exp_bytes);
 
-        let mut scalar_bytes = [0u8; 256];
-        scalar_bytes[256 - 32..].copy_from_slice(&scalar.0.to_be_bytes());
+        let mut scalar_bytes = [0u8; ELEMENT_BYTES];
+        scalar_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&scalar.0.to_be_bytes());
         let scalar_2048 = U2048::from_be_bytes(scalar_bytes);
 
-        let mut q_bytes = [0u8; 256];
-        q_bytes[256 - 32..].copy_from_slice(&q.to_be_bytes());
+        let mut q_bytes = [0u8; ELEMENT_BYTES];
+        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q.to_be_bytes());
         let q_2048 = U2048::from_be_bytes(q_bytes);
 
         let inv_2048 = mod_pow(&scalar_2048, &exp_2048, &q_2048).ok()?;
         let inv_bytes = inv_2048.to_be_bytes();
-        let inv = U256::from_be_slice(&inv_bytes[inv_bytes.len() - 32..]);
+        let inv = U256::from_be_slice(&inv_bytes[inv_bytes.len() - SCALAR_BYTES..]);
 
         Some(Scalar(inv))
     }
