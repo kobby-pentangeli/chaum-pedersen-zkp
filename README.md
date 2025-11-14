@@ -38,10 +38,13 @@ cargo run --bin client
 
 ## Contributing
 
-Thank you for considering to contribute to this project!
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
 
-All contributions large and small are actively accepted.
+## License
 
-* To get started, please read the [contribution guidelines](https://github.com/kobby-pentangeli/chaum-pedersen-zkp/blob/master/CONTRIBUTING.md).
+Licensed under either of
 
-* Browse [Good First Issues](https://github.com/kobby-pentangeli/chaum-pedersen-zkp/labels/good%20first%20issue).
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
