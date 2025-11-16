@@ -1,0 +1,327 @@
+use core::marker::PhantomData;
+
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+use crate::{Group, Result};
+
+/// Protocol version for serialization compatibility.
+const PROTOCOL_VERSION: u8 = 1;
+
+/// Public parameters for the Chaum-Pedersen protocol.
+///
+/// Contains the group generators used for the discrete logarithm equality proof.
+#[derive(Clone, Debug)]
+pub struct Parameters<G: Group> {
+    generator_g: G::Element,
+    generator_h: G::Element,
+    _phantom: PhantomData<G>,
+}
+
+impl<G: Group> Parameters<G> {
+    /// Creates new parameters with the default generators from the group.
+    pub fn new() -> Self {
+        Self {
+            generator_g: G::generator_g(),
+            generator_h: G::generator_h(),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Creates parameters with custom generators.
+    ///
+    /// # Security
+    ///
+    /// The generators must be cryptographically independent with no known
+    /// discrete log relationship.
+    pub fn with_generators(g: G::Element, h: G::Element) -> Self {
+        Self {
+            generator_g: g,
+            generator_h: h,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the first generator `g`.
+    pub fn generator_g(&self) -> &G::Element {
+        &self.generator_g
+    }
+
+    /// Returns the second generator `h`.
+    pub fn generator_h(&self) -> &G::Element {
+        &self.generator_h
+    }
+}
+
+impl<G: Group> Default for Parameters<G> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Secret witness for the Chaum-Pedersen proof.
+///
+/// Contains the discrete logarithm `x` that is being proven equal for both generators.
+/// Automatically zeroized when dropped.
+#[derive(Clone, Debug, Zeroize, ZeroizeOnDrop)]
+pub struct Witness<G: Group> {
+    x: G::Scalar,
+}
+
+impl<G: Group> Witness<G> {
+    /// Creates a new witness from a scalar value.
+    pub fn new(x: G::Scalar) -> Self {
+        Self { x }
+    }
+
+    /// Returns a reference to the secret scalar.
+    pub(crate) fn secret(&self) -> &G::Scalar {
+        &self.x
+    }
+}
+
+/// Public statement for the Chaum-Pedersen proof.
+///
+/// Proves knowledge of `x` such that `y1 = g^x` and `y2 = h^x`.
+#[derive(Clone, Debug)]
+pub struct Statement<G: Group> {
+    y1: G::Element,
+    y2: G::Element,
+}
+
+impl<G: Group> Statement<G> {
+    /// Creates a new statement from the public values.
+    pub fn new(y1: G::Element, y2: G::Element) -> Self {
+        Self { y1, y2 }
+    }
+
+    /// Computes the statement from parameters and witness: `y1 = g^x`, `y2 = h^x`.
+    pub fn from_witness(params: &Parameters<G>, witness: &Witness<G>) -> Self {
+        let y1 = G::scalar_mul(params.generator_g(), witness.secret());
+        let y2 = G::scalar_mul(params.generator_h(), witness.secret());
+        Self { y1, y2 }
+    }
+
+    /// Returns the first public value `y1 = g^x`.
+    pub fn y1(&self) -> &G::Element {
+        &self.y1
+    }
+
+    /// Returns the second public value `y2 = h^x`.
+    pub fn y2(&self) -> &G::Element {
+        &self.y2
+    }
+
+    /// Validates that both elements are in the correct subgroup.
+    pub fn validate(&self) -> Result<()> {
+        G::validate_element(&self.y1)?;
+        G::validate_element(&self.y2)?;
+        Ok(())
+    }
+}
+
+/// Commitment values in the Chaum-Pedersen proof.
+///
+/// First message from prover: `r1 = g^k`, `r2 = h^k` for random `k`.
+#[derive(Clone, Debug)]
+pub struct Commitment<G: Group> {
+    r1: G::Element,
+    r2: G::Element,
+}
+
+impl<G: Group> Commitment<G> {
+    /// Creates a new commitment from the commitment values.
+    pub fn new(r1: G::Element, r2: G::Element) -> Self {
+        Self { r1, r2 }
+    }
+
+    /// Returns the first commitment value `r1 = g^k`.
+    pub fn r1(&self) -> &G::Element {
+        &self.r1
+    }
+
+    /// Returns the second commitment value `r2 = h^k`.
+    pub fn r2(&self) -> &G::Element {
+        &self.r2
+    }
+}
+
+/// Response value in the Chaum-Pedersen proof.
+///
+/// Prover's response to challenge: `s = k + c*x`.
+#[derive(Clone, Debug, Zeroize)]
+#[zeroize(drop)]
+pub struct Response<G: Group> {
+    s: G::Scalar,
+}
+
+impl<G: Group> Response<G> {
+    /// Creates a new response from a scalar value.
+    pub fn new(s: G::Scalar) -> Self {
+        Self { s }
+    }
+
+    /// Returns a reference to the response scalar.
+    pub fn s(&self) -> &G::Scalar {
+        &self.s
+    }
+}
+
+/// Complete non-interactive zero-knowledge proof.
+///
+/// Contains the commitment and response for the Chaum-Pedersen protocol.
+#[derive(Clone, Debug)]
+pub struct Proof<G: Group> {
+    version: u8,
+    commitment: Commitment<G>,
+    response: Response<G>,
+}
+
+impl<G: Group> Proof<G> {
+    /// Creates a new proof from commitment and response.
+    pub fn new(commitment: Commitment<G>, response: Response<G>) -> Self {
+        Self {
+            version: PROTOCOL_VERSION,
+            commitment,
+            response,
+        }
+    }
+
+    /// Returns the protocol version.
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    /// Returns a reference to the commitment.
+    pub fn commitment(&self) -> &Commitment<G> {
+        &self.commitment
+    }
+
+    /// Returns a reference to the response.
+    pub fn response(&self) -> &Response<G> {
+        &self.response
+    }
+
+    /// Serializes the proof to bytes.
+    ///
+    /// Format: [version (1 byte)][r1_len (4 bytes)][r1][r2_len (4 bytes)][r2][s_len (4 bytes)][s]
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let r1_bytes = G::element_to_bytes(self.commitment.r1());
+        let r2_bytes = G::element_to_bytes(self.commitment.r2());
+        let s_bytes = G::scalar_to_bytes(self.response.s());
+
+        let mut result = Vec::new();
+        result.push(self.version);
+
+        result.extend_from_slice(&(r1_bytes.len() as u32).to_be_bytes());
+        result.extend_from_slice(&r1_bytes);
+
+        result.extend_from_slice(&(r2_bytes.len() as u32).to_be_bytes());
+        result.extend_from_slice(&r2_bytes);
+
+        result.extend_from_slice(&(s_bytes.len() as u32).to_be_bytes());
+        result.extend_from_slice(&s_bytes);
+
+        Ok(result)
+    }
+
+    /// Deserializes a proof from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.is_empty() {
+            return Err(crate::Error::InvalidParams("Empty proof bytes".to_string()));
+        }
+
+        let version = bytes[0];
+        if version != PROTOCOL_VERSION {
+            return Err(crate::Error::InvalidParams(format!(
+                "Unsupported proof version: expected {}, got {}",
+                PROTOCOL_VERSION, version
+            )));
+        }
+
+        let mut pos = 1;
+
+        let r1_len = u32::from_be_bytes(
+            bytes[pos..pos + 4]
+                .try_into()
+                .map_err(|_| crate::Error::InvalidParams("Invalid r1 length".to_string()))?,
+        ) as usize;
+        pos += 4;
+
+        let r1 = G::element_from_bytes(&bytes[pos..pos + r1_len])?;
+        pos += r1_len;
+
+        let r2_len = u32::from_be_bytes(
+            bytes[pos..pos + 4]
+                .try_into()
+                .map_err(|_| crate::Error::InvalidParams("Invalid r2 length".to_string()))?,
+        ) as usize;
+        pos += 4;
+
+        let r2 = G::element_from_bytes(&bytes[pos..pos + r2_len])?;
+        pos += r2_len;
+
+        let s_len = u32::from_be_bytes(
+            bytes[pos..pos + 4]
+                .try_into()
+                .map_err(|_| crate::Error::InvalidParams("Invalid s length".to_string()))?,
+        ) as usize;
+        pos += 4;
+
+        let s = G::scalar_from_bytes(&bytes[pos..pos + s_len])?;
+
+        Ok(Proof {
+            version,
+            commitment: Commitment::new(r1, r2),
+            response: Response::new(s),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Ristretto255, SecureRng};
+
+    #[test]
+    fn parameters_default() {
+        let params = Parameters::<Ristretto255>::default();
+        assert_eq!(params.generator_g(), &Ristretto255::generator_g());
+        assert_eq!(params.generator_h(), &Ristretto255::generator_h());
+    }
+
+    #[test]
+    fn statement_from_witness() {
+        let mut rng = SecureRng::new();
+        let params = Parameters::<Ristretto255>::new();
+        let x = Ristretto255::random_scalar(&mut rng);
+        let witness = Witness::new(x.clone());
+
+        let statement = Statement::from_witness(&params, &witness);
+        let expected_y1 = Ristretto255::scalar_mul(params.generator_g(), &x);
+        let expected_y2 = Ristretto255::scalar_mul(params.generator_h(), &x);
+
+        assert_eq!(statement.y1(), &expected_y1);
+        assert_eq!(statement.y2(), &expected_y2);
+    }
+
+    #[test]
+    fn proof_serialization() {
+        let mut rng = SecureRng::new();
+        let r1 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_g(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let r2 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_h(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let proof = Proof::new(commitment, response);
+
+        let bytes = proof.to_bytes().unwrap();
+        let deserialized = Proof::<Ristretto255>::from_bytes(&bytes).unwrap();
+
+        assert_eq!(deserialized.version(), PROTOCOL_VERSION);
+    }
+}

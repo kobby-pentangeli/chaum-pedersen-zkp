@@ -315,7 +315,8 @@ fn rfc5114_p() -> U2048 {
     )
 }
 
-fn rfc5114_q() -> U256 {
+/// Returns the RFC 5114 subgroup order q (256-bit prime).
+pub fn rfc5114_q() -> U256 {
     U256::from_be_hex("8CF83642A709A097B447997640129DA299B1A47D1EB3750BA308B0FE64F5FBD3")
 }
 
@@ -328,7 +329,7 @@ fn rfc5114_g() -> U2048 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::SecureRng;
+    use crate::SecureRng;
 
     #[test]
     fn generators() {

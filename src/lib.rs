@@ -37,10 +37,13 @@ pub mod crypto;
 pub mod error;
 /// Group implementations for Chaum-Pedersen protocol.
 pub mod groups;
+/// Protocol implementation (prover, verifier, transcripts).
+pub mod protocol;
 
 pub use crypto::{Group, SecureRng};
 pub use error::Error;
 pub use groups::{Rfc5114, Ristretto255};
+pub use protocol::{Parameters, Proof, Prover, Statement, Transcript, Verifier, Witness};
 
 /// A specialized Result type for Chaum-Pedersen operations.
 pub type Result<T> = core::result::Result<T, Error>;
