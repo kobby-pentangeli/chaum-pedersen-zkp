@@ -68,19 +68,16 @@ impl<G: Group> Verifier<G> {
         let y1_c = G::scalar_mul(y1, challenge);
         let rhs1 = G::element_mul(r1, &y1_c);
 
-        if lhs1 != rhs1 {
-            return Err(crate::Error::InvalidParams(
-                "First verification equation failed: g^s != r1 * y1^c".to_string(),
-            ));
-        }
-
         let lhs2 = G::scalar_mul(h, s);
         let y2_c = G::scalar_mul(y2, challenge);
         let rhs2 = G::element_mul(r2, &y2_c);
 
-        if lhs2 != rhs2 {
+        let check1 = lhs1 == rhs1;
+        let check2 = lhs2 == rhs2;
+
+        if !check1 || !check2 {
             return Err(crate::Error::InvalidParams(
-                "Second verification equation failed: h^s != r2 * y2^c".to_string(),
+                "Proof verification failed".to_string(),
             ));
         }
 

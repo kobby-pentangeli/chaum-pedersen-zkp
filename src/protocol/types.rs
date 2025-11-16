@@ -33,12 +33,33 @@ impl<G: Group> Parameters<G> {
     ///
     /// The generators must be cryptographically independent with no known
     /// discrete log relationship.
-    pub fn with_generators(g: G::Element, h: G::Element) -> Self {
-        Self {
+    pub fn with_generators(g: G::Element, h: G::Element) -> Result<Self> {
+        G::validate_element(&g)?;
+        G::validate_element(&h)?;
+
+        if G::is_identity(&g) {
+            return Err(crate::Error::InvalidParams(
+                "Generator g cannot be identity".to_string(),
+            ));
+        }
+
+        if G::is_identity(&h) {
+            return Err(crate::Error::InvalidParams(
+                "Generator h cannot be identity".to_string(),
+            ));
+        }
+
+        if g == h {
+            return Err(crate::Error::InvalidParams(
+                "Generators g and h must be different".to_string(),
+            ));
+        }
+
+        Ok(Self {
             generator_g: g,
             generator_h: h,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Returns the first generator `g`.
@@ -226,48 +247,129 @@ impl<G: Group> Proof<G> {
 
     /// Deserializes a proof from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.is_empty() {
-            return Err(crate::Error::InvalidParams("Empty proof bytes".to_string()));
+        const MAX_ELEMENT_SIZE: usize = 4096;
+        const MAX_SCALAR_SIZE: usize = 512;
+        const MIN_PROOF_SIZE: usize = 1 + 4 + 1 + 4 + 1 + 4 + 1;
+
+        if bytes.len() < MIN_PROOF_SIZE {
+            return Err(crate::Error::InvalidParams(format!(
+                "Proof too small: {} bytes",
+                bytes.len()
+            )));
         }
 
         let version = bytes[0];
         if version != PROTOCOL_VERSION {
             return Err(crate::Error::InvalidParams(format!(
-                "Unsupported proof version: expected {}, got {}",
-                PROTOCOL_VERSION, version
+                "Unsupported proof version: {}",
+                version
             )));
         }
 
         let mut pos = 1;
 
+        if pos + 4 > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: missing r1 length".to_string(),
+            ));
+        }
         let r1_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
                 .try_into()
-                .map_err(|_| crate::Error::InvalidParams("Invalid r1 length".to_string()))?,
+                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
         ) as usize;
         pos += 4;
 
+        if r1_len == 0 || r1_len > MAX_ELEMENT_SIZE {
+            return Err(crate::Error::InvalidParams(format!(
+                "Invalid r1 length: {}",
+                r1_len
+            )));
+        }
+
+        if pos + r1_len > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: incomplete r1 data".to_string(),
+            ));
+        }
         let r1 = G::element_from_bytes(&bytes[pos..pos + r1_len])?;
         pos += r1_len;
 
+        if pos + 4 > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: missing r2 length".to_string(),
+            ));
+        }
         let r2_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
                 .try_into()
-                .map_err(|_| crate::Error::InvalidParams("Invalid r2 length".to_string()))?,
+                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
         ) as usize;
         pos += 4;
 
+        if r2_len == 0 || r2_len > MAX_ELEMENT_SIZE {
+            return Err(crate::Error::InvalidParams(format!(
+                "Invalid r2 length: {}",
+                r2_len
+            )));
+        }
+
+        if pos + r2_len > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: incomplete r2 data".to_string(),
+            ));
+        }
         let r2 = G::element_from_bytes(&bytes[pos..pos + r2_len])?;
         pos += r2_len;
 
+        if pos + 4 > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: missing s length".to_string(),
+            ));
+        }
         let s_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
                 .try_into()
-                .map_err(|_| crate::Error::InvalidParams("Invalid s length".to_string()))?,
+                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
         ) as usize;
         pos += 4;
 
+        if s_len == 0 || s_len > MAX_SCALAR_SIZE {
+            return Err(crate::Error::InvalidParams(format!(
+                "Invalid s length: {}",
+                s_len
+            )));
+        }
+
+        if pos + s_len > bytes.len() {
+            return Err(crate::Error::InvalidParams(
+                "Truncated proof: incomplete s data".to_string(),
+            ));
+        }
         let s = G::scalar_from_bytes(&bytes[pos..pos + s_len])?;
+        pos += s_len;
+
+        if pos != bytes.len() {
+            return Err(crate::Error::InvalidParams(format!(
+                "Proof has {} trailing bytes",
+                bytes.len() - pos
+            )));
+        }
+
+        G::validate_element(&r1)?;
+        G::validate_element(&r2)?;
+
+        if G::is_identity(&r1) || G::is_identity(&r2) {
+            return Err(crate::Error::InvalidParams(
+                "Commitment contains identity element".to_string(),
+            ));
+        }
+
+        if G::scalar_is_zero(&s) {
+            return Err(crate::Error::InvalidParams(
+                "Response scalar is zero".to_string(),
+            ));
+        }
 
         Ok(Proof {
             version,
@@ -287,6 +389,21 @@ mod tests {
         let params = Parameters::<Ristretto255>::default();
         assert_eq!(params.generator_g(), &Ristretto255::generator_g());
         assert_eq!(params.generator_h(), &Ristretto255::generator_h());
+    }
+
+    #[test]
+    fn parameters_rejects_identity_generators() {
+        let identity = Ristretto255::identity();
+        let g = Ristretto255::generator_g();
+
+        assert!(Parameters::<Ristretto255>::with_generators(identity.clone(), g.clone()).is_err());
+        assert!(Parameters::<Ristretto255>::with_generators(g.clone(), identity).is_err());
+    }
+
+    #[test]
+    fn parameters_rejects_equal_generators() {
+        let g = Ristretto255::generator_g();
+        assert!(Parameters::<Ristretto255>::with_generators(g.clone(), g).is_err());
     }
 
     #[test]
@@ -323,5 +440,104 @@ mod tests {
         let deserialized = Proof::<Ristretto255>::from_bytes(&bytes).unwrap();
 
         assert_eq!(deserialized.version(), PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_empty() {
+        let result = Proof::<Ristretto255>::from_bytes(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_truncated() {
+        let result = Proof::<Ristretto255>::from_bytes(&[1, 0, 0, 0]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_wrong_version() {
+        let mut bytes = vec![99];
+        bytes.extend_from_slice(&[0, 0, 0, 32]);
+        bytes.resize(100, 0);
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_zero_length_fields() {
+        let mut bytes = vec![PROTOCOL_VERSION];
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_excessive_length() {
+        let mut bytes = vec![PROTOCOL_VERSION];
+        bytes.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_trailing_data() {
+        let mut rng = SecureRng::new();
+        let r1 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_g(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let r2 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_h(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let proof = Proof::new(commitment, response);
+
+        let mut bytes = proof.to_bytes().unwrap();
+        bytes.push(0xFF);
+
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_identity_commitment() {
+        let identity = Ristretto255::identity();
+        let mut rng = SecureRng::new();
+        let r2 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_h(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+
+        let commitment: Commitment<Ristretto255> = Commitment::new(identity, r2);
+        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let proof = Proof::new(commitment, response);
+
+        let bytes = proof.to_bytes().unwrap();
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proof_from_bytes_rejects_zero_response() {
+        let mut rng = SecureRng::new();
+        let r1 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_g(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let r2 = Ristretto255::scalar_mul(
+            &Ristretto255::generator_h(),
+            &Ristretto255::random_scalar(&mut rng),
+        );
+        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+
+        let zero_scalar = Ristretto255::scalar_from_bytes(&[0u8; 32]).unwrap();
+        let response = Response::new(zero_scalar);
+        let proof = Proof::new(commitment, response);
+
+        let bytes = proof.to_bytes().unwrap();
+        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        assert!(result.is_err());
     }
 }

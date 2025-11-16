@@ -1,10 +1,11 @@
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar as DalekScalar;
-use curve25519_dalek::traits::Identity;
+use curve25519_dalek::traits::{Identity, IsIdentity};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
+use subtle::{Choice, ConstantTimeEq};
 use zeroize::Zeroize;
 
 use crate::{Error, Group, Result};
@@ -35,6 +36,12 @@ pub struct Scalar(DalekScalar);
 /// Element (point) in the Ristretto255 group.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Element(RistrettoPoint);
+
+impl ConstantTimeEq for Scalar {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.ct_eq(&other.0)
+    }
+}
 
 impl Scalar {
     /// Creates a new scalar from a curve25519_dalek Scalar.
@@ -149,8 +156,18 @@ impl Group for Ristretto255 {
         element.0 == RistrettoPoint::identity()
     }
 
-    fn validate_element(_element: &Self::Element) -> Result<()> {
-        Ok(())
+    fn validate_element(element: &Self::Element) -> Result<()> {
+        if element.0.is_identity() {
+            return Ok(());
+        }
+
+        let compressed = element.0.compress();
+        match compressed.decompress() {
+            Some(point) if point == element.0 => Ok(()),
+            _ => Err(Error::InvalidGroupElement(
+                "Element failed recompression validation".to_string(),
+            )),
+        }
     }
 
     fn scalar_add(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {

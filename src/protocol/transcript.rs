@@ -32,6 +32,17 @@ impl Transcript {
         Self(transcript)
     }
 
+    /// Appends application-specific context to prevent cross-protocol attacks.
+    ///
+    /// # Security
+    ///
+    /// This should be called before generating proofs in application-specific
+    /// contexts to ensure proofs from one context cannot be replayed in another.
+    /// Examples: session ID, domain separator, purpose string.
+    pub fn append_context(&mut self, context: &[u8]) {
+        self.0.append_message(b"context", context);
+    }
+
     /// Appends the group name to the transcript.
     pub fn append_group_name(&mut self, name: &str) {
         self.0.append_message(b"group", name.as_bytes());
