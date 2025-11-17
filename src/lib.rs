@@ -40,6 +40,17 @@ pub mod groups;
 /// Protocol implementation (prover, verifier, transcripts).
 pub mod protocol;
 
+#[cfg(feature = "server")]
+/// Server-side implementation.
+pub mod server;
+
+#[cfg(feature = "grpc")]
+/// Generated protobuf types.
+#[allow(missing_docs)]
+pub mod proto {
+    tonic::include_proto!("chaum_pedersen.v1");
+}
+
 pub use crypto::{Group, SecureRng};
 pub use error::Error;
 pub use groups::{Rfc5114, Ristretto255};
