@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package chaum_pedersen.v1;
+
+service AuthService {
+  rpc Register(RegistrationRequest) returns (RegistrationResponse);
+  rpc CreateChallenge(ChallengeRequest) returns (ChallengeResponse);
+  rpc VerifyProof(VerificationRequest) returns (VerificationResponse);
+}
+
+message RegistrationRequest {
+  string user_id = 1;
+  bytes y1 = 2;
+  bytes y2 = 3;
+  string group_name = 4;
+}
+
+message RegistrationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ChallengeRequest {
+  string user_id = 1;
+}
+
+message ChallengeResponse {
+  bytes challenge_id = 1;
+  int64 expires_at = 2;
+}
+
+message VerificationRequest {
+  string user_id = 1;
+  bytes challenge_id = 2;
+  bytes proof = 3;
+}
+
+message VerificationResponse {
+  bool success = 1;
+  string message = 2;
+  optional string session_token = 3;
+}
