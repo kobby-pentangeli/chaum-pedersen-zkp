@@ -44,15 +44,16 @@ serde = { version = "1.0", features = ["derive"] }
 postcard = { version = "1.0", features = ["alloc"] }
 thiserror = "2.0"
 
-tonic = { version = "0.14", optional = true }
-prost = { version = "0.14", optional = true }
+tonic = { version = "0.12", optional = true }
+prost = { version = "0.13", optional = true }
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
+    "signal",
 ], optional = true }
-tonic-health = { version = "0.14", optional = true }
-tonic-reflection = { version = "0.14", optional = true }
-tower = { version = "0.5", features = [
+tonic-health = { version = "0.12", optional = true }
+tonic-reflection = { version = "0.12", optional = true }
+tower = { version = "0.4", features = [
     "timeout",
     "limit",
     "load-shed",
@@ -68,9 +69,11 @@ tracing-subscriber = { version = "0.3", features = [
 ], optional = true }
 metrics = { version = "0.24", optional = true }
 metrics-exporter-prometheus = { version = "0.17", optional = true }
+hex = { version = "0.4", optional = true }
 
 [build-dependencies]
-tonic-build = { version = "0.14", optional = true }
+tonic-build = { version = "0.12", optional = true }
+prost-build = { version = "0.13", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
@@ -80,7 +83,13 @@ hex = "0.4"
 
 [features]
 default = []
-grpc = ["dep:tonic", "dep:prost", "dep:tokio", "dep:tonic-build"]
+grpc = [
+    "dep:tonic",
+    "dep:prost",
+    "dep:tokio",
+    "dep:tonic-build",
+    "dep:prost-build",
+]
 server = [
     "grpc",
     "dep:tonic-health",
@@ -91,6 +100,7 @@ server = [
     "dep:metrics",
     "dep:metrics-exporter-prometheus",
     "dep:figment",
+    "dep:hex",
 ]
 client = ["grpc", "dep:clap", "dep:argon2", "dep:figment"]
 
