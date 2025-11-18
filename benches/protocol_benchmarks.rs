@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::hint::black_box;
 
 use chaum_pedersen::{
@@ -47,6 +45,7 @@ fn bench_ristretto_proof_verification(c: &mut Criterion) {
     });
 }
 
+#[allow(dead_code)]
 fn bench_rfc5114_proof_generation(c: &mut Criterion) {
     let params = Parameters::<Rfc5114>::new();
     let mut rng = SecureRng::new();
@@ -63,6 +62,7 @@ fn bench_rfc5114_proof_generation(c: &mut Criterion) {
     });
 }
 
+#[allow(dead_code)]
 fn bench_rfc5114_proof_verification(c: &mut Criterion) {
     let params = Parameters::<Rfc5114>::new();
     let mut rng = SecureRng::new();
@@ -125,13 +125,6 @@ criterion_group!(
     benches,
     bench_ristretto_proof_generation,
     bench_ristretto_proof_verification,
-    // NOTE: RFC5114 benchmarks disabled due to crypto-bigint 0.6 incompatibility
-    // in optimized builds. The issue is in crypto-bigint's to_be_bytes() method
-    // when compiled with release optimizations. RFC5114 works correctly in all
-    // tests (including --release) and production code; only benchmark profile fails.
-    // In any case, Ristretto255 is the recommended group anyway (100x faster than RFC5114).
-    // bench_rfc5114_proof_generation,
-    // bench_rfc5114_proof_verification,
     bench_statement_serialization,
     bench_statement_deserialization
 );

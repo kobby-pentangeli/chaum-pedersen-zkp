@@ -38,10 +38,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cleanup_state = state.clone();
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(60));
         loop {
-            interval.tick().await;
-            cleanup_state.cleanup_expired_challenges().await;
+            let state_clone = cleanup_state.clone();
+            let cleanup_handle = tokio::spawn(async move {
+                let mut interval = time::interval(Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+                    state_clone.cleanup_expired_challenges().await;
+                    state_clone.cleanup_expired_sessions().await;
+                }
+            });
+
+            match cleanup_handle.await {
+                Ok(()) => {
+                    error!("Cleanup task terminated unexpectedly, restarting...");
+                }
+                Err(e) => {
+                    error!("Cleanup task panicked: {:?}, restarting...", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 

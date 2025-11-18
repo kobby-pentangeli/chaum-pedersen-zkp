@@ -34,6 +34,7 @@ crypto-bigint = { version = "0.6", features = [
     "zeroize",
 ] }
 curve25519-dalek = { version = "4", features = ["alloc", "zeroize", "serde"] }
+p256 = { version = "0.13", features = ["arithmetic", "ecdsa", "serde"] }
 merlin = "3.0"
 zeroize = { version = "1.7", features = ["derive", "alloc"] }
 subtle = "2.6"

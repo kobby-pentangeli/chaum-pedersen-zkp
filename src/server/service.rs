@@ -170,17 +170,17 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
             .state
             .consume_challenge(&req.challenge_id)
             .await
-            .map_err(|e| Status::invalid_argument(format!("Invalid challenge: {e}")))?;
+            .map_err(|_| Status::permission_denied("Authentication failed"))?;
 
         if challenge_data.user_id != req.user_id {
-            return Err(Status::permission_denied("Challenge/user mismatch"));
+            return Err(Status::permission_denied("Authentication failed"));
         }
 
         let user = self
             .state
             .get_user(&req.user_id)
             .await
-            .ok_or_else(|| Status::not_found(format!("User '{}' not found", req.user_id)))?;
+            .ok_or_else(|| Status::permission_denied("Authentication failed"))?;
 
         let proof = Proof::<Ristretto255>::from_bytes(&req.proof)
             .map_err(|e| Status::invalid_argument(format!("Invalid proof: {e}")))?;
@@ -199,6 +199,12 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         let mut session_token = vec![0u8; 32];
         rng.fill_bytes(&mut session_token);
         let session_token_hex = hex::encode(&session_token);
+
+        // Store the session
+        self.state
+            .create_session(session_token_hex.clone(), req.user_id.clone())
+            .await
+            .map_err(|e| Status::internal(format!("Failed to create session: {e}")))?;
 
         Ok(Response::new(VerificationResponse {
             success: true,

@@ -89,7 +89,7 @@ pub mod proto {
 
 pub use crypto::{Group, SecureRng};
 pub use error::Error;
-pub use groups::{Rfc5114, Ristretto255};
+pub use groups::{P256, Rfc5114, Ristretto255};
 pub use protocol::{Parameters, Proof, Prover, Statement, Transcript, Verifier, Witness};
 
 /// A specialized Result type for Chaum-Pedersen operations.
