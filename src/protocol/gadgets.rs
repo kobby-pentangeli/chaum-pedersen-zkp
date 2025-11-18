@@ -10,6 +10,13 @@ const PROTOCOL_VERSION: u8 = 1;
 /// Public parameters for the Chaum-Pedersen protocol.
 ///
 /// Contains the group generators used for the discrete logarithm equality proof.
+/// The protocol proves knowledge of `x` such that `y1 = g^x` and `y2 = h^x`.
+///
+/// # Security
+///
+/// The generators `g` and `h` must be cryptographically independent with no known
+/// discrete logarithm relationship. Using the default generators from [`Parameters::new()`]
+/// is recommended for most applications.
 #[derive(Clone, Debug)]
 pub struct Parameters<G: Group> {
     generator_g: G::Element,
@@ -19,6 +26,17 @@ pub struct Parameters<G: Group> {
 
 impl<G: Group> Parameters<G> {
     /// Creates new parameters with the default generators from the group.
+    ///
+    /// This is the recommended way to create parameters. The default generators
+    /// are chosen to be cryptographically independent.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Parameters, Ristretto255};
+    ///
+    /// let params = Parameters::<Ristretto255>::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             generator_g: G::generator_g(),
@@ -32,7 +50,28 @@ impl<G: Group> Parameters<G> {
     /// # Security
     ///
     /// The generators must be cryptographically independent with no known
-    /// discrete log relationship.
+    /// discrete log relationship. Both generators must be non-identity elements
+    /// and must be different from each other.
+    ///
+    /// Using custom generators is only recommended for advanced use cases where
+    /// the discrete logarithm relationship between `g` and `h` is provably unknown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Either generator is the identity element
+    /// - The generators are equal to each other
+    /// - Either generator fails group validation
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Parameters, Ristretto255, Group};
+    ///
+    /// let g = <Ristretto255 as Group>::generator_g();
+    /// let h = <Ristretto255 as Group>::generator_h();
+    /// let params = Parameters::<Ristretto255>::with_generators(g, h).unwrap();
+    /// ```
     pub fn with_generators(g: G::Element, h: G::Element) -> Result<Self> {
         G::validate_element(&g)?;
         G::validate_element(&h)?;
@@ -82,7 +121,15 @@ impl<G: Group> Default for Parameters<G> {
 /// Secret witness for the Chaum-Pedersen proof.
 ///
 /// Contains the discrete logarithm `x` that is being proven equal for both generators.
-/// Automatically zeroized when dropped.
+/// The prover demonstrates knowledge of `x` such that `y1 = g^x` and `y2 = h^x` without
+/// revealing `x` itself.
+///
+/// # Security
+///
+/// - The witness is automatically zeroized when dropped to prevent leakage
+/// - Use [`SecureRng`](crate::SecureRng) to generate random witness values
+/// - Never reuse witness values across different protocol instances
+/// - Keep witness values secret and never transmit them
 #[derive(Clone, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct Witness<G: Group> {
     x: G::Scalar,
@@ -90,6 +137,21 @@ pub struct Witness<G: Group> {
 
 impl<G: Group> Witness<G> {
     /// Creates a new witness from a scalar value.
+    ///
+    /// # Security
+    ///
+    /// The scalar should be generated using a cryptographically secure random number
+    /// generator. Use [`Group::random_scalar`] with [`crate::SecureRng`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Witness, Ristretto255, Group, SecureRng};
+    ///
+    /// let mut rng = SecureRng::new();
+    /// let x = Ristretto255::random_scalar(&mut rng);
+    /// let witness = Witness::<Ristretto255>::new(x);
+    /// ```
     pub fn new(x: G::Scalar) -> Self {
         Self { x }
     }
@@ -102,7 +164,14 @@ impl<G: Group> Witness<G> {
 
 /// Public statement for the Chaum-Pedersen proof.
 ///
-/// Proves knowledge of `x` such that `y1 = g^x` and `y2 = h^x`.
+/// Represents the public values `y1 = g^x` and `y2 = h^x` where `x` is the secret witness.
+/// The prover proves knowledge of `x` without revealing it.
+///
+/// # Security
+///
+/// - The statement is public and can be safely transmitted
+/// - Use [`Statement::validate`] to ensure the values are in the correct subgroup
+/// - Statements should be bound to proofs via transcript context to prevent replay attacks
 #[derive(Clone, Debug)]
 pub struct Statement<G: Group> {
     y1: G::Element,
@@ -111,11 +180,39 @@ pub struct Statement<G: Group> {
 
 impl<G: Group> Statement<G> {
     /// Creates a new statement from the public values.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Statement, Ristretto255, Group};
+    ///
+    /// let g = <Ristretto255 as Group>::generator_g();
+    /// let h = <Ristretto255 as Group>::generator_h();
+    /// let y1 = g.clone();
+    /// let y2 = h.clone();
+    ///
+    /// let statement = Statement::<Ristretto255>::new(y1, y2);
+    /// ```
     pub fn new(y1: G::Element, y2: G::Element) -> Self {
         Self { y1, y2 }
     }
 
     /// Computes the statement from parameters and witness: `y1 = g^x`, `y2 = h^x`.
+    ///
+    /// This is the standard way to create a statement from a secret witness.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Statement, Parameters, Witness, Ristretto255, Group, SecureRng};
+    ///
+    /// let params = Parameters::<Ristretto255>::new();
+    /// let mut rng = SecureRng::new();
+    /// let x = Ristretto255::random_scalar(&mut rng);
+    /// let witness = Witness::new(x);
+    ///
+    /// let statement = Statement::from_witness(&params, &witness);
+    /// ```
     pub fn from_witness(params: &Parameters<G>, witness: &Witness<G>) -> Self {
         let y1 = G::scalar_mul(params.generator_g(), witness.secret());
         let y2 = G::scalar_mul(params.generator_h(), witness.secret());
@@ -190,6 +287,21 @@ impl<G: Group> Response<G> {
 /// Complete non-interactive zero-knowledge proof.
 ///
 /// Contains the commitment and response for the Chaum-Pedersen protocol.
+/// A proof demonstrates knowledge of `x` such that `y1 = g^x` and `y2 = h^x`
+/// without revealing `x`.
+///
+/// # Security
+///
+/// - Proofs are single-use and should never be reused
+/// - Proofs are bound to the statement via transcript context
+/// - Use unique context data (challenge IDs) to prevent replay attacks
+/// - Proofs can be safely transmitted and verified by anyone
+///
+/// # Serialization
+///
+/// Proofs can be serialized to bytes using [`Proof::to_bytes`] and deserialized
+/// using [`Proof::from_bytes`]. The serialization format is versioned for
+/// forward compatibility.
 #[derive(Clone, Debug)]
 pub struct Proof<G: Group> {
     version: u8,
@@ -199,6 +311,8 @@ pub struct Proof<G: Group> {
 
 impl<G: Group> Proof<G> {
     /// Creates a new proof from commitment and response.
+    ///
+    /// This is typically called by [`Prover`](crate::Prover) and not directly by users.
     pub fn new(commitment: Commitment<G>, response: Response<G>) -> Self {
         Self {
             version: PROTOCOL_VERSION,
@@ -224,7 +338,7 @@ impl<G: Group> Proof<G> {
 
     /// Serializes the proof to bytes.
     ///
-    /// Format: [version (1 byte)][r1_len (4 bytes)][r1][r2_len (4 bytes)][r2][s_len (4 bytes)][s]
+    /// Format: `[version (1 byte)][r1_len (4 bytes)][r1][r2_len (4 bytes)][r2][s_len (4 bytes)][s]`
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let r1_bytes = G::element_to_bytes(self.commitment.r1());
         let r2_bytes = G::element_to_bytes(self.commitment.r2());

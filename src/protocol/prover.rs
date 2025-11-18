@@ -6,7 +6,15 @@ use crate::{Group, Result};
 
 /// Prover for the Chaum-Pedersen zero-knowledge protocol.
 ///
-/// Provides both interactive and non-interactive proof generation.
+/// Generates zero-knowledge proofs demonstrating knowledge of a discrete logarithm `x`
+/// such that `y1 = g^x` and `y2 = h^x` without revealing `x`.
+///
+/// # Security
+///
+/// - Always use [`SecureRng`](crate::SecureRng) for randomness generation
+/// - Bind proofs to specific contexts using transcript methods to prevent replay attacks
+/// - Never reuse witness values across different protocol instances
+/// - Ensure the witness is zeroized after use (automatic with [`Witness`])
 pub struct Prover<G: Group> {
     params: Parameters<G>,
     witness: Witness<G>,
@@ -16,7 +24,20 @@ pub struct Prover<G: Group> {
 impl<G: Group> Prover<G> {
     /// Creates a new prover with the given parameters and witness.
     ///
-    /// The statement is automatically computed from the witness.
+    /// The statement is automatically computed from the witness as `y1 = g^x` and `y2 = h^x`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Prover, Parameters, Witness, Ristretto255, Group, SecureRng};
+    ///
+    /// let params = Parameters::<Ristretto255>::new();
+    /// let mut rng = SecureRng::new();
+    /// let x = Ristretto255::random_scalar(&mut rng);
+    /// let witness = Witness::new(x);
+    ///
+    /// let prover = Prover::new(params, witness);
+    /// ```
     pub fn new(params: Parameters<G>, witness: Witness<G>) -> Self {
         let statement = Statement::from_witness(&params, &witness);
         Self {

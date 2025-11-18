@@ -1,32 +1,68 @@
 //! # Chaum-Pedersen Zero-Knowledge Protocol Library
 //!
-//! An implementation of the Chaum-Pedersen zero-knowledge protocol,
-//! enabling proofs of discrete logarithm equality.
+//! ## Overview
+//!
+//! The Chaum-Pedersen protocol allows a prover to demonstrate knowledge of a discrete logarithm
+//! `x` such that `y1 = g^x` and `y2 = h^x` without revealing `x` itself. This implementation
+//! supports both interactive and non-interactive (Fiat-Shamir) proof variants.
 //!
 //! ## Features
 //!
-//! - Multiple group implementations (RFC 5114 MODP, Ristretto255)
-//! - Constant-time operations to prevent timing attacks
-//! - Memory zeroization for sensitive data
-//! - Interactive and non-interactive (Fiat-Shamir) proof variants
+//! - **Multiple group implementations**: RFC 5114 MODP and Ristretto255
+//! - **Constant-time operations**: Protection against timing attacks
+//! - **Memory zeroization**: Automatic clearing of sensitive data
+//! - **Fiat-Shamir transform**: Non-interactive proofs with transcript support
+//! - **gRPC support**: Optional client-server authentication system
 //!
-//! ## Example
+//! ## Quick Start
 //!
 //! ```rust
-//! use chaum_pedersen::Ristretto255;
-//! use chaum_pedersen::{Group, SecureRng};
+//! use chaum_pedersen::{
+//!     Ristretto255, Group, SecureRng, Parameters, Witness, Statement, Prover, Verifier, Transcript
+//! };
 //!
+//! let params = Parameters::<Ristretto255>::new();
 //! let mut rng = SecureRng::new();
 //!
-//! // Generate secret
+//! // Prover: Generate secret and create statement
 //! let x = Ristretto255::random_scalar(&mut rng);
+//! let witness = Witness::new(x);
+//! let statement = Statement::from_witness(&params, &witness);
 //!
-//! // Compute public values
-//! let g = Ristretto255::generator_g();
-//! let h = Ristretto255::generator_h();
-//! let y1 = Ristretto255::scalar_mul(&g, &x);
-//! let y2 = Ristretto255::scalar_mul(&h, &x);
+//! // Prover: Generate proof with Fiat-Shamir
+//! let mut transcript = Transcript::new();
+//! let proof = Prover::new(params.clone(), witness)
+//!     .prove_with_transcript(&mut rng, &mut transcript)
+//!     .unwrap();
+//!
+//! // Verifier: Verify the proof
+//! let mut verify_transcript = Transcript::new();
+//! let verifier = Verifier::new(params, statement);
+//! assert!(verifier.verify_with_transcript(&proof, &mut verify_transcript).is_ok());
 //! ```
+//!
+//! ## Security Considerations
+//!
+//! - **Group selection**: Use Ristretto255 for best security and performance
+//! - **Randomness**: Use `SecureRng` for all random scalar generation
+//! - **Transcript binding**: Use unique context data to prevent replay attacks
+//! - **Single-use challenges**: Never reuse challenges or proofs across sessions
+//! - **Constant-time**: All group operations are designed to resist timing attacks
+//!
+//! ## Performance
+//!
+//! Benchmark results on M-series Mac (Ristretto255):
+//! - Proof generation: ~144 microseconds
+//! - Proof verification: ~159 microseconds
+//! - Serialization/deserialization: ~7 microseconds
+//!
+//! RFC5114 is approximately 100x slower than Ristretto255 and is not recommended
+//! for new applications.
+//!
+//! ## Feature Flags
+//!
+//! - `server`: Enable server-side state management
+//! - `grpc`: Enable gRPC service definitions and implementations
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::all)]

@@ -3,7 +3,15 @@ use crate::{Group, Result};
 
 /// Verifier for the Chaum-Pedersen zero-knowledge protocol.
 ///
-/// Validates proofs of discrete logarithm equality.
+/// Validates zero-knowledge proofs of discrete logarithm equality without learning
+/// the secret value `x`.
+///
+/// # Security
+///
+/// - Always validate the statement before verification
+/// - Use the same transcript context that was used during proof generation
+/// - Reject proofs if the transcript context doesn't match (prevents replay attacks)
+/// - Verification is deterministic and constant-time to resist timing attacks
 pub struct Verifier<G: Group> {
     params: Parameters<G>,
     statement: Statement<G>,
@@ -11,6 +19,19 @@ pub struct Verifier<G: Group> {
 
 impl<G: Group> Verifier<G> {
     /// Creates a new verifier with the given parameters and statement.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chaum_pedersen::{Verifier, Parameters, Statement, Ristretto255, Group};
+    ///
+    /// let params = Parameters::<Ristretto255>::new();
+    /// let g = <Ristretto255 as Group>::generator_g();
+    /// let h = <Ristretto255 as Group>::generator_h();
+    /// let statement = Statement::<Ristretto255>::new(g, h);
+    ///
+    /// let verifier = Verifier::new(params, statement);
+    /// ```
     pub fn new(params: Parameters<G>, statement: Statement<G>) -> Self {
         Self { params, statement }
     }
@@ -18,6 +39,22 @@ impl<G: Group> Verifier<G> {
     /// Verifies a non-interactive zero-knowledge proof.
     ///
     /// Returns `Ok(())` if the proof is valid, `Err` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use chaum_pedersen::{Verifier, Proof, Parameters, Statement, Ristretto255, Group};
+    ///
+    /// # let params = Parameters::<Ristretto255>::new();
+    /// # let statement = Statement::<Ristretto255>::new(
+    /// #     <Ristretto255 as Group>::generator_g(),
+    /// #     <Ristretto255 as Group>::generator_h()
+    /// # );
+    /// # let proof = todo!(); // Assume we have a proof
+    /// let verifier = Verifier::new(params, statement);
+    /// let result = verifier.verify(&proof);
+    /// assert!(result.is_ok());
+    /// ```
     pub fn verify(&self, proof: &Proof<G>) -> Result<()> {
         let mut transcript = Transcript::new();
         self.verify_with_transcript(proof, &mut transcript)
@@ -25,7 +62,34 @@ impl<G: Group> Verifier<G> {
 
     /// Verifies a proof using a custom transcript.
     ///
-    /// The transcript must match the one used during proof generation.
+    /// The transcript must match the one used during proof generation. This is critical
+    /// for security as it binds the proof to a specific context (e.g., session ID,
+    /// challenge ID) and prevents replay attacks.
+    ///
+    /// # Security
+    ///
+    /// Always use the same transcript context that was used during proof generation.
+    /// Mismatched contexts will cause verification to fail, which protects against
+    /// replay attacks.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use chaum_pedersen::{Verifier, Parameters, Statement, Transcript, Ristretto255, Group};
+    ///
+    /// # let params = Parameters::<Ristretto255>::new();
+    /// # let statement = Statement::<Ristretto255>::new(
+    /// #     <Ristretto255 as Group>::generator_g(),
+    /// #     <Ristretto255 as Group>::generator_h()
+    /// # );
+    /// # let proof = todo!(); // Assume we have a proof
+    /// let verifier = Verifier::new(params, statement);
+    ///
+    /// let mut transcript = Transcript::new();
+    /// transcript.append_context(b"session-12345");
+    ///
+    /// let result = verifier.verify_with_transcript(&proof, &mut transcript);
+    /// ```
     pub fn verify_with_transcript(
         &self,
         proof: &Proof<G>,
