@@ -33,7 +33,7 @@ impl Serialize for Scalar {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&self.0.to_be_bytes())
+        serializer.serialize_bytes(self.0.to_be_bytes().as_ref())
     }
 }
 
@@ -57,7 +57,7 @@ impl Serialize for Element {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&self.0.to_be_bytes())
+        serializer.serialize_bytes(self.0.to_be_bytes().as_ref())
     }
 }
 
@@ -150,7 +150,7 @@ impl Group for Rfc5114 {
     }
 
     fn scalar_to_bytes(scalar: &Self::Scalar) -> Vec<u8> {
-        scalar.0.to_be_bytes().to_vec()
+        scalar.0.to_be_bytes().as_ref().to_vec()
     }
 
     fn element_from_bytes(bytes: &[u8]) -> Result<Self::Element> {
@@ -177,7 +177,7 @@ impl Group for Rfc5114 {
     }
 
     fn element_to_bytes(element: &Self::Element) -> Vec<u8> {
-        element.0.to_be_bytes().to_vec()
+        element.0.to_be_bytes().as_ref().to_vec()
     }
 
     fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Self::Scalar {
@@ -199,7 +199,7 @@ impl Group for Rfc5114 {
         let p = rfc5114_p();
         let mut exp_bytes = [0u8; ELEMENT_BYTES];
         let scalar_bytes = scalar.0.to_be_bytes();
-        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&scalar_bytes);
+        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(scalar_bytes.as_ref());
         let exp = U2048::from_be_bytes(exp_bytes);
         Element(
             mod_pow(&element.0, &exp, &p)
@@ -237,7 +237,7 @@ impl Group for Rfc5114 {
         }
 
         let mut q_bytes = [0u8; ELEMENT_BYTES];
-        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q.to_be_bytes());
+        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(q.to_be_bytes().as_ref());
         let q_2048 = U2048::from_be_bytes(q_bytes);
         let result = mod_pow(&element.0, &q_2048, &p)?;
         if !bool::from(result.ct_eq(&U2048::ONE)) {
@@ -286,20 +286,22 @@ impl Group for Rfc5114 {
         let q_minus_2 = q.wrapping_sub(&U256::from_u8(2));
 
         let mut exp_bytes = [0u8; ELEMENT_BYTES];
-        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q_minus_2.to_be_bytes());
+        exp_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(q_minus_2.to_be_bytes().as_ref());
         let exp_2048 = U2048::from_be_bytes(exp_bytes);
 
         let mut scalar_bytes = [0u8; ELEMENT_BYTES];
-        scalar_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&scalar.0.to_be_bytes());
+        scalar_bytes[ELEMENT_BYTES - SCALAR_BYTES..]
+            .copy_from_slice(scalar.0.to_be_bytes().as_ref());
         let scalar_2048 = U2048::from_be_bytes(scalar_bytes);
 
         let mut q_bytes = [0u8; ELEMENT_BYTES];
-        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(&q.to_be_bytes());
+        q_bytes[ELEMENT_BYTES - SCALAR_BYTES..].copy_from_slice(q.to_be_bytes().as_ref());
         let q_2048 = U2048::from_be_bytes(q_bytes);
 
         let inv_2048 = mod_pow(&scalar_2048, &exp_2048, &q_2048).ok()?;
         let inv_bytes = inv_2048.to_be_bytes();
-        let inv = U256::from_be_slice(&inv_bytes[inv_bytes.len() - SCALAR_BYTES..]);
+        let inv =
+            U256::from_be_slice(&inv_bytes.as_ref()[inv_bytes.as_ref().len() - SCALAR_BYTES..]);
 
         Some(Scalar(inv))
     }

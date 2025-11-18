@@ -389,6 +389,7 @@ dependencies = [
  "subtle",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tokio-test",
  "tonic",
  "tonic-build",

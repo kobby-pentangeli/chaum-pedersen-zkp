@@ -79,6 +79,7 @@ prost-build = { version = "0.13", optional = true }
 proptest = "1.4"
 criterion = { version = "0.7", features = ["html_reports"] }
 tokio-test = "0.4"
+tokio-stream = { version = "0.1", features = ["net"] }
 hex = "0.4"
 
 [features]
@@ -103,6 +104,10 @@ server = [
     "dep:hex",
 ]
 client = ["grpc", "dep:clap", "dep:argon2", "dep:figment"]
+
+[[bench]]
+name = "protocol_benchmarks"
+harness = false
 
 [profile.release]
 opt-level = 3

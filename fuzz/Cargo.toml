@@ -1,0 +1,26 @@
+[package]
+name = "chaum-pedersen-zkp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.chaum-pedersen-zkp]
+path = ".."
+
+[[bin]]
+name = "fuzz_proof_deserialization"
+path = "fuzz_targets/fuzz_proof_deserialization.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_statement_validation"
+path = "fuzz_targets/fuzz_statement_validation.rs"
+test = false
+doc = false
