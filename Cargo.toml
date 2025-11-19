@@ -45,12 +45,13 @@ serde = { version = "1.0", features = ["derive"] }
 postcard = { version = "1.0", features = ["alloc"] }
 thiserror = "2.0"
 
-tonic = { version = "0.12", optional = true }
+tonic = { version = "0.12", features = ["tls"], optional = true }
 prost = { version = "0.13", optional = true }
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
     "signal",
+    "fs",
 ], optional = true }
 tonic-health = { version = "0.12", optional = true }
 tonic-reflection = { version = "0.12", optional = true }

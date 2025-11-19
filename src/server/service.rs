@@ -1,6 +1,9 @@
+#[cfg(feature = "server")]
+use metrics::{counter, histogram};
 use rand_core::RngCore;
 use tonic::{Request, Response, Status};
 
+use super::config::RateLimiter;
 use super::state::{ServerState, UserData};
 use crate::proto::auth_service_server::AuthService;
 use crate::proto::{
@@ -12,12 +15,16 @@ use crate::{Group, Parameters, Proof, Ristretto255, SecureRng, Statement, Transc
 /// gRPC service implementation for Chaum-Pedersen authentication.
 pub struct AuthServiceImpl<G: Group> {
     state: ServerState<G>,
+    rate_limiter: RateLimiter,
 }
 
 impl<G: Group> AuthServiceImpl<G> {
-    /// Creates a new authentication service with the given state.
-    pub fn new(state: ServerState<G>) -> Self {
-        Self { state }
+    /// Creates a new authentication service with the given state and rate limiter.
+    pub fn new(state: ServerState<G>, rate_limiter: RateLimiter) -> Self {
+        Self {
+            state,
+            rate_limiter,
+        }
     }
 
     #[allow(clippy::result_large_err)]
@@ -59,6 +66,11 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         &self,
         request: Request<RegistrationRequest>,
     ) -> Result<Response<RegistrationResponse>, Status> {
+        let start = std::time::Instant::now();
+        counter!("auth.register.requests").increment(1);
+
+        self.rate_limiter.check_rate_limit().await?;
+
         let req = request.into_inner();
 
         Self::validate_user_id(&req.user_id)?;
@@ -99,10 +111,21 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
                 .as_secs(),
         };
 
-        self.state
+        let result = self
+            .state
             .register_user(user_data)
             .await
-            .map_err(|e| Status::already_exists(format!("Registration failed: {e}")))?;
+            .map_err(|e| Status::already_exists(format!("Registration failed: {e}")));
+
+        histogram!("auth.register.duration").record(start.elapsed().as_secs_f64());
+
+        if result.is_ok() {
+            counter!("auth.register.success").increment(1);
+        } else {
+            counter!("auth.register.failure").increment(1);
+        }
+
+        result?;
 
         Ok(Response::new(RegistrationResponse {
             success: true,
@@ -114,6 +137,11 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         &self,
         request: Request<ChallengeRequest>,
     ) -> Result<Response<ChallengeResponse>, Status> {
+        let start = std::time::Instant::now();
+        counter!("auth.challenge.requests").increment(1);
+
+        self.rate_limiter.check_rate_limit().await?;
+
         let req = request.into_inner();
 
         Self::validate_user_id(&req.user_id)?;
@@ -128,11 +156,21 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         let mut challenge_id = vec![0u8; 32];
         rng.fill_bytes(&mut challenge_id);
 
-        let expires_at = self
+        let result = self
             .state
             .create_challenge(&user.user_id, challenge_id.clone())
             .await
-            .map_err(|e| Status::resource_exhausted(format!("Challenge creation failed: {e}")))?;
+            .map_err(|e| Status::resource_exhausted(format!("Challenge creation failed: {e}")));
+
+        histogram!("auth.challenge.duration").record(start.elapsed().as_secs_f64());
+
+        if result.is_ok() {
+            counter!("auth.challenge.success").increment(1);
+        } else {
+            counter!("auth.challenge.failure").increment(1);
+        }
+
+        let expires_at = result?;
 
         let expires_at_i64 = i64::try_from(expires_at).unwrap_or(i64::MAX);
 
@@ -146,6 +184,11 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         &self,
         request: Request<VerificationRequest>,
     ) -> Result<Response<VerificationResponse>, Status> {
+        let start = std::time::Instant::now();
+        counter!("auth.verify.requests").increment(1);
+
+        self.rate_limiter.check_rate_limit().await?;
+
         let req = request.into_inner();
 
         Self::validate_user_id(&req.user_id)?;
@@ -201,10 +244,21 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         let session_token_hex = hex::encode(&session_token);
 
         // Store the session
-        self.state
+        let result = self
+            .state
             .create_session(session_token_hex.clone(), req.user_id.clone())
             .await
-            .map_err(|e| Status::internal(format!("Failed to create session: {e}")))?;
+            .map_err(|e| Status::internal(format!("Failed to create session: {e}")));
+
+        histogram!("auth.verify.duration").record(start.elapsed().as_secs_f64());
+
+        if result.is_ok() {
+            counter!("auth.verify.success").increment(1);
+        } else {
+            counter!("auth.verify.failure").increment(1);
+        }
+
+        result?;
 
         Ok(Response::new(VerificationResponse {
             success: true,

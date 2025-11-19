@@ -3,6 +3,7 @@
 use chaum_pedersen::proto::auth_service_client::AuthServiceClient;
 use chaum_pedersen::proto::auth_service_server::AuthServiceServer;
 use chaum_pedersen::proto::{ChallengeRequest, RegistrationRequest, VerificationRequest};
+use chaum_pedersen::server::config::RateLimiter;
 use chaum_pedersen::server::service::AuthServiceImpl;
 use chaum_pedersen::server::state::ServerState;
 use chaum_pedersen::{
@@ -13,7 +14,8 @@ use tonic::transport::Server;
 
 async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
     let state = ServerState::<Ristretto255>::new();
-    let service = AuthServiceImpl::new(state);
+    let rate_limiter = RateLimiter::new(1000, 100);
+    let service = AuthServiceImpl::new(state, rate_limiter);
 
     let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
