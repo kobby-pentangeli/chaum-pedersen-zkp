@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use chaum_pedersen::Ristretto255;
 use chaum_pedersen::proto::auth_service_server::AuthServiceServer;
-use chaum_pedersen::server::{AuthServiceImpl, RateLimiter, ServerConfig, ServerState};
+use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerConfig, ServerState};
 use tokio::{signal, time};
 use tonic::transport::Server;
 use tonic_health::server::{HealthReporter, health_reporter};

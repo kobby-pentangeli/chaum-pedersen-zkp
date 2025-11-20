@@ -3,9 +3,9 @@
 use chaum_pedersen::proto::auth_service_client::AuthServiceClient;
 use chaum_pedersen::proto::auth_service_server::AuthServiceServer;
 use chaum_pedersen::proto::{ChallengeRequest, RegistrationRequest, VerificationRequest};
-use chaum_pedersen::server::config::RateLimiter;
-use chaum_pedersen::server::service::AuthServiceImpl;
-use chaum_pedersen::server::state::ServerState;
+use chaum_pedersen::verifier::config::RateLimiter;
+use chaum_pedersen::verifier::service::AuthServiceImpl;
+use chaum_pedersen::verifier::state::ServerState;
 use chaum_pedersen::{
     Group, Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Witness,
 };

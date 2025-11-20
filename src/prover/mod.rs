@@ -1,7 +1,13 @@
+//! Prover (client) implementation for the Chaum-Pedersen protocol.
+//!
+//! This module contains the prover's logic for generating zero-knowledge proofs
+//! that demonstrate knowledge of a discrete logarithm without revealing it.
+
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use super::{Commitment, Parameters, Proof, Response, Statement, Transcript, Witness};
+use crate::primitives::Transcript;
+use crate::primitives::gadgets::{Commitment, Parameters, Proof, Response, Statement, Witness};
 use crate::{Group, Result};
 
 /// Prover for the Chaum-Pedersen zero-knowledge protocol.

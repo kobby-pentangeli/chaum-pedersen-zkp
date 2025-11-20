@@ -103,7 +103,7 @@ impl Transcript {
                     .unwrap_or_else(|_| unreachable!("Ristretto scalar bytes are valid"))
             }
             "RFC5114-2048-256" => {
-                let q = crate::groups::rfc5114::rfc5114_q();
+                let q = crate::primitives::groups::rfc5114::rfc5114_q();
                 let challenge = self.challenge_scalar_rfc5114(&q);
                 let bytes = challenge.to_be_bytes();
                 G::scalar_from_bytes(&bytes)

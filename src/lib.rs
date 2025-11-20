@@ -67,18 +67,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::all)]
 
-/// Cryptographic primitives and traits.
-pub mod crypto;
 /// Error types for the library.
 pub mod error;
-/// Group implementations for Chaum-Pedersen protocol.
-pub mod groups;
-/// Protocol implementation (prover, verifier, transcripts).
-pub mod protocol;
-
-#[cfg(feature = "server")]
-/// Server-side implementation.
-pub mod server;
+/// Core cryptographic primitives (crypto, groups, gadgets, transcripts).
+pub mod primitives;
+/// Prover (client) implementation.
+pub mod prover;
+/// Verifier (server) implementation.
+pub mod verifier;
 
 #[cfg(feature = "grpc")]
 /// Generated protobuf types.
@@ -87,10 +83,13 @@ pub mod proto {
     tonic::include_proto!("chaum_pedersen.v1");
 }
 
-pub use crypto::{Group, SecureRng};
 pub use error::Error;
-pub use groups::{P256, Rfc5114, Ristretto255};
-pub use protocol::{Parameters, Proof, Prover, Statement, Transcript, Verifier, Witness};
+pub use primitives::{
+    Group, P256, Parameters, Proof, Rfc5114, Ristretto255, SecureRng, Statement, Transcript,
+    Witness,
+};
+pub use prover::Prover;
+pub use verifier::Verifier;
 
 /// A specialized Result type for Chaum-Pedersen operations.
 pub type Result<T> = core::result::Result<T, Error>;

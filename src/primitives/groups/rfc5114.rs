@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::{Choice, ConstantTimeEq};
 use zeroize::Zeroize;
 
-use crate::crypto::field::mod_pow;
+use crate::primitives::crypto::field::mod_pow;
 use crate::{Error, Group, Result};
 
 /// Number of bytes in a scalar (256 bits).

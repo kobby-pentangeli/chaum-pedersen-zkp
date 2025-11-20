@@ -202,7 +202,7 @@ impl Group for Ristretto255 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::SecureRng;
+    use crate::primitives::crypto::SecureRng;
 
     #[test]
     fn generators() {

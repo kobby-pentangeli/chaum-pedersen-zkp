@@ -1,5 +1,29 @@
-use super::{Parameters, Proof, Statement, Transcript};
+//! Verifier (server) implementation for the Chaum-Pedersen protocol.
+//!
+//! This module contains the verifier's logic for validating zero-knowledge proofs
+//! and managing server-side state, configuration, and gRPC services.
+
+use crate::primitives::{Parameters, Proof, Statement, Transcript};
 use crate::{Group, Result};
+
+#[cfg(feature = "server")]
+/// Server configuration and rate limiting.
+pub mod config;
+
+#[cfg(feature = "server")]
+/// gRPC service implementation.
+pub mod service;
+
+#[cfg(feature = "server")]
+/// Server state management.
+pub mod state;
+
+#[cfg(feature = "server")]
+pub use config::{RateLimiter, ServerConfig};
+#[cfg(feature = "server")]
+pub use service::AuthServiceImpl;
+#[cfg(feature = "server")]
+pub use state::ServerState;
 
 /// Verifier for the Chaum-Pedersen zero-knowledge protocol.
 ///
