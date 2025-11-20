@@ -66,15 +66,21 @@ cargo build --release --all-features
 
 3. Configure the server (optional):
 
+The server automatically loads configuration from multiple sources in order of priority:
+
+1. Environment variables (highest priority)
+2. TOML configuration file
+3. `.env` file (automatically loaded)
+4. Built-in defaults (lowest priority)
+
 ```bash
-# Option 1: Copy and edit TOML configuration file
+# Option 1: Use .env file (automatically loaded, no export needed)
+cp .env.example .env
+# Edit .env with your settings and that's it!
+
+# Option 2: Use TOML configuration file
 cp config/server.toml.example config/server.toml
 # Edit config/server.toml with your settings
-
-# Option 2: Use environment variables
-cp .env.example .env
-# Edit .env with your settings
-# Then: export $(cat .env | xargs)
 
 # Option 3: Set environment variables directly
 export SERVER_HOST=0.0.0.0

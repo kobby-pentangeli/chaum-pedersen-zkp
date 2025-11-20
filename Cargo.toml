@@ -64,6 +64,7 @@ tower = { version = "0.4", features = [
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 argon2 = { version = "0.5", optional = true }
 figment = { version = "0.10", features = ["toml", "env"], optional = true }
+dotenvy = { version = "0.15", optional = true }
 
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = [
@@ -103,6 +104,7 @@ server = [
     "dep:metrics",
     "dep:metrics-exporter-prometheus",
     "dep:figment",
+    "dep:dotenvy",
     "dep:hex",
 ]
 client = ["grpc", "dep:clap", "dep:argon2", "dep:figment"]

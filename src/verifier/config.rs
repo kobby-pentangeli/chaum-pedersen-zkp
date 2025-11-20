@@ -182,12 +182,17 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Loads configuration from TOML file and environment variables.
+    /// Loads configuration from `.env` file, TOML file, and environment variables.
     ///
     /// Configuration priority (highest to lowest):
-    /// 1. Environment variables with `SERVER_` prefix (e.g., `SERVER_SERVER_PORT=8080`)
+    /// 1. Environment variables with `SERVER_` prefix (e.g., `SERVER_PORT=8080`)
     /// 2. TOML configuration file (if exists)
-    /// 3. Built-in defaults
+    /// 3. `.env` file (if exists)
+    /// 4. Built-in defaults
+    ///
+    /// The `.env` file is automatically loaded from the current directory or any parent
+    /// directory (searches up the directory tree). If no `.env` file is found, this is
+    /// not considered an error and configuration continues with other sources.
     ///
     /// The TOML file path can be set via `SERVER_CONFIG_PATH` environment variable.
     /// If not set, defaults to `./config/server.toml`. If the file doesn't exist,
@@ -195,6 +200,7 @@ impl ServerConfig {
     ///
     /// # Environment Variable Examples
     /// ```bash
+    /// # In `.env` file or shell:
     /// SERVER_HOST=0.0.0.0
     /// SERVER_PORT=8080
     /// SERVER_RATE_LIMIT_REQUESTS_PER_MINUTE=200
@@ -212,6 +218,9 @@ impl ServerConfig {
     pub fn from_env() -> figment::error::Result<Self> {
         use figment::Figment;
         use figment::providers::{Env, Format, Toml};
+
+        // Attempt to load .env file (silently ignore if it doesn't exist)
+        let _ = dotenvy::dotenv();
 
         let config_path = std::env::var("SERVER_CONFIG_PATH")
             .unwrap_or_else(|_| "config/server.toml".to_string());
