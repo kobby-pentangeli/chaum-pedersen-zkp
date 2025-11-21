@@ -89,7 +89,7 @@ pub use primitives::{
     Witness,
 };
 pub use prover::Prover;
-pub use verifier::Verifier;
+pub use verifier::{BatchVerifier, Verifier};
 
 /// A specialized Result type for Chaum-Pedersen operations.
 pub type Result<T> = core::result::Result<T, Error>;

@@ -3,8 +3,10 @@
 //! This module contains the verifier's logic for validating zero-knowledge proofs
 //! and managing server-side state, configuration, and gRPC services.
 
-use crate::primitives::{Parameters, Proof, Statement, Transcript};
-use crate::{Group, Result};
+use crate::{Group, Parameters, Proof, Result, Statement, Transcript};
+
+/// Batch verification for multiple proofs.
+pub mod batch;
 
 #[cfg(feature = "server")]
 /// Server configuration and rate limiting.
@@ -18,6 +20,7 @@ pub mod service;
 /// Server state management.
 pub mod state;
 
+pub use batch::BatchVerifier;
 #[cfg(feature = "server")]
 pub use config::{RateLimiter, ServerConfig};
 #[cfg(feature = "server")]
