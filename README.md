@@ -15,6 +15,7 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 
 - **Zero-knowledge authentication**: Server never sees passwords
 - **High performance**: 0.14ms proof generation, 0.16ms verification (Ristretto255)
+- **Batch verification**: 30-50% faster for verifying multiple proofs simultaneously
 - **Constant-time operations**: Protection against timing attacks
 - **Memory zeroization**: Automatic clearing of sensitive data
 - **gRPC API**: Server with TLS, rate limiting, metrics
@@ -160,13 +161,33 @@ cargo run --release --bin client --features client -- register \
   --password secret123
 ```
 
-**Authenticate:**
+**Batch register (multiple users):**
+
+```bash
+cargo run --release --bin client --features client -- batch-register \
+  --users alice,bob,charlie \
+  --passwords password1,password2,password3
+```
+
+Registers multiple users in a single request, reducing network overhead.
+
+**Authenticate (individual):**
 
 ```bash
 cargo run --release --bin client --features client -- login \
   --user alice \
   --password secret123
 ```
+
+**Batch authenticate (multiple users):**
+
+```bash
+cargo run --release --bin client --features client -- batch-login \
+  --users alice,bob,charlie \
+  --passwords password1,password2,password3
+```
+
+This uses batch verification on the server, providing 30-50% better performance compared to individual logins.
 
 **Custom server:**
 
@@ -257,6 +278,45 @@ let proof = Proof::new(commitment, response);
 // Verifier: Verification
 let verifier = Verifier::new(params, statement);
 assert!(verifier.verify_response(&challenge, &proof).is_ok());
+```
+
+### Batch Verification
+
+Batch verification provides 30-50% better performance when verifying multiple proofs:
+
+```rust
+use chaum_pedersen::BatchVerifier;
+
+// Create batch verifier
+let mut batch_verifier = BatchVerifier::<Ristretto255>::new();
+
+// Add multiple proofs to batch
+for i in 0..10 {
+    let x = Ristretto255::random_scalar(&mut rng);
+    let witness = Witness::new(x);
+    let prover = Prover::new(params.clone(), witness);
+    let statement = prover.statement().clone();
+
+    let mut transcript = Transcript::new();
+    transcript.append_context(format!("user-{}", i).as_bytes());
+    let proof = prover.prove_with_transcript(&mut rng, &mut transcript).unwrap();
+
+    // Add to batch with context binding
+    batch_verifier.add_with_context(
+        params.clone(),
+        statement,
+        proof,
+        Some(format!("user-{}", i).into_bytes())
+    ).unwrap();
+}
+
+// Verify entire batch at once (single multi-scalar multiplication)
+let results = batch_verifier.verify(&mut rng).unwrap();
+
+// Check individual results
+for (i, result) in results.iter().enumerate() {
+    assert!(result.is_ok(), "Proof {} should be valid", i);
+}
 ```
 
 ### Group Selection
