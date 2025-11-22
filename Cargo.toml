@@ -110,7 +110,11 @@ server = [
 client = ["grpc", "dep:clap", "dep:argon2", "dep:figment"]
 
 [[bench]]
-name = "protocol_benchmarks"
+name = "batch_verification"
+harness = false
+
+[[bench]]
+name = "proof_generation"
 harness = false
 
 [profile.release]
