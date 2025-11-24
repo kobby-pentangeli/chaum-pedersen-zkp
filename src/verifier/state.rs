@@ -325,6 +325,21 @@ impl ServerState {
             }
         }
     }
+
+    /// Returns the number of registered users.
+    pub async fn user_count(&self) -> usize {
+        self.users.read().await.len()
+    }
+
+    /// Returns the number of active sessions.
+    pub async fn session_count(&self) -> usize {
+        self.sessions.read().await.len()
+    }
+
+    /// Returns the number of pending challenges.
+    pub async fn challenge_count(&self) -> usize {
+        self.challenges.read().await.len()
+    }
 }
 
 impl Default for ServerState {
