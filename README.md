@@ -210,6 +210,9 @@ cargo clippy --all-targets --all-features
 # Testing
 cargo test --all-features
 
+# Testing with progress output (useful for long-running batch tests)
+cargo test --all-features -- --nocapture
+
 # Benchmarking
 # Run all benchmarks
 cargo bench

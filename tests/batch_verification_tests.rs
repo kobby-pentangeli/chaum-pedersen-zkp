@@ -9,6 +9,10 @@ use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerState};
 use chaum_pedersen::{Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness};
 use tonic::transport::Server;
 
+mod common;
+
+use common::init_tracing;
+
 async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
     let state = ServerState::new();
     let rate_limiter = RateLimiter::new(10000, 10000);
@@ -391,14 +395,20 @@ async fn batch_register_mismatched_arrays() {
 
 #[tokio::test]
 async fn batch_verify_large_batch() {
+    init_tracing();
+
+    tracing::info!("Starting large batch verification test");
+
     let (server_addr, _handle) = start_test_server().await;
     let mut client = AuthServiceClient::connect(server_addr).await.unwrap();
+    tracing::info!("Server started and client connected");
 
     let num_users = 100;
     let mut user_ids = Vec::new();
     let mut challenge_ids = Vec::new();
     let mut proofs = Vec::new();
 
+    tracing::info!("Registering {} users and generating proofs...", num_users);
     for i in 0..num_users {
         let user_id = format!("large_batch_user_{}", i);
         let (y1, y2, _) = generate_proof_for_user(&user_id, b"dummy");
@@ -421,7 +431,13 @@ async fn batch_verify_large_batch() {
         user_ids.push(user_id);
         challenge_ids.push(challenge_id);
         proofs.push(proof_bytes);
+
+        if (i + 1) % 25 == 0 {
+            tracing::info!("  Progress: {}/{} users prepared", i + 1, num_users);
+        }
     }
+
+    tracing::info!("All users registered, submitting batch verification request...");
 
     let batch_req = BatchVerificationRequest {
         user_ids: user_ids.clone(),
@@ -435,4 +451,10 @@ async fn batch_verify_large_batch() {
     assert_eq!(results.len(), num_users);
     let successful = results.iter().filter(|r| r.success).count();
     assert_eq!(successful, num_users);
+
+    tracing::info!(
+        "Batch verification complete: {}/{} proofs verified successfully",
+        successful,
+        num_users
+    );
 }
