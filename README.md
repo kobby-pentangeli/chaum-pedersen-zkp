@@ -37,8 +37,8 @@ src/
 │   ├── batch.rs       # Batch verification
 │   └── state.rs       # Server state management
 └── bin/
-    ├── client.rs      # CLI client (prover)
-    └── server.rs      # gRPC server (verifier)
+    ├── client.rs      # Interactive CLI client (prover)
+    └── server.rs      # Interactive gRPC server (verifier)
 ```
 
 ## Quick Start
@@ -102,100 +102,130 @@ cargo run --example auth_system
 
 ### Run Server (Verifier)
 
-**1. Configure (optional):**
+The server provides an interactive REPL for monitoring and management while handling gRPC requests.
 
-The server automatically loads configuration from multiple sources (priority order):
-
-1. Environment variables (highest)
-2. TOML file (`config/server.toml`)
-3. `.env` file (auto-loaded)
-4. Built-in defaults (lowest)
-
-```bash
-# Option 1: Use .env file (easiest - automatically loaded)
-cp .env.example .env
-# Edit .env with your settings
-
-# Option 2: Use TOML config
-cp config/server.toml.example config/server.toml
-# Edit config/server.toml
-
-# Option 3: Environment variables directly
-export SERVER_HOST=0.0.0.0
-export SERVER_PORT=50051
-```
-
-**Available configuration:**
-
-```bash
-# Network
-SERVER_HOST=127.0.0.1                    # Bind address
-SERVER_PORT=50051                        # gRPC port
-
-# Rate limiting (token bucket)
-SERVER_RATE_LIMIT_REQUESTS_PER_MINUTE=60 # Sustained rate
-SERVER_RATE_LIMIT_BURST=10               # Burst capacity
-
-# Metrics (Prometheus)
-SERVER_METRICS_ENABLED=true              # Enable/disable
-SERVER_METRICS_PORT=9090                 # Metrics endpoint
-
-# TLS
-SERVER_TLS_ENABLED=false                 # Enable TLS
-SERVER_TLS_CERT_PATH=/path/to/cert.pem   # Certificate
-SERVER_TLS_KEY_PATH=/path/to/key.pem     # Private key
-```
-
-**2. Run:**
+**Start the server:**
 
 ```bash
 cargo run --release --bin server --features server
 ```
 
+**With custom options:**
+
+```bash
+cargo run --release --bin server --features server -- \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --rate-limit 100 \
+  --rate-burst 50 \
+  --metrics
+```
+
+**Server REPL commands:**
+
+```sh
++---------------------------------------------------------+
+|       Chaum-Pedersen ZKP Authentication Server          |
++---------------------------------------------------------+
+
+Server starting on 127.0.0.1:50051
+  Rate limit: 100 req/min, burst: 50
+  Metrics: disabled
+  Health check: enabled
+
+Type /help for available commands or /quit to exit
+
+zkp-server@127.0.0.1:50051> /help
+
+Available Commands:
+
+  /status              - Show server status and configuration
+  /users               - List registered users count
+  /sessions            - List active sessions count
+  /challenges          - List pending challenges count
+  /cleanup             - Force cleanup of expired state
+  /help                - Show this help message
+  /quit or /exit       - Initiate graceful shutdown
+```
+
+**Environment variables (optional):**
+
+```bash
+SERVER_HOST=127.0.0.1                    # Bind address
+SERVER_PORT=50051                        # gRPC port
+METRICS_ENABLED=true                     # Enable Prometheus metrics
+METRICS_PORT=9090                        # Metrics endpoint port
+RATE_LIMIT_RPM=100                       # Requests per minute
+RATE_LIMIT_BURST=50                      # Burst capacity
+```
+
 ### Run Client (Prover)
 
-**Register user:**
+The client provides an interactive REPL for registration and authentication.
+
+**Start the client:**
 
 ```bash
-cargo run --release --bin client --features client -- register \
-  --user alice \
-  --password secret123
+cargo run --release --bin client --features client
 ```
 
-**Batch register (multiple users):**
+**Connect to custom server:**
 
 ```bash
-cargo run --release --bin client --features client -- batch-register \
-  --users alice,bob,charlie \
-  --passwords password1,password2,password3
+cargo run --release --bin client --features client -- --server http://192.168.1.100:50051
 ```
 
-Registers multiple users in a single request, reducing network overhead.
+**Client REPL commands:**
 
-**Authenticate (individual):**
+```sh
++---------------------------------------------------------+
+|       Chaum-Pedersen ZKP Authentication Client          |
++---------------------------------------------------------+
 
-```bash
-cargo run --release --bin client --features client -- login \
-  --user alice \
-  --password secret123
+Connecting to http://127.0.0.1:50051...
+Connected successfully
+
+Type /help for available commands or /quit to exit
+
+zkp-client@http://127.0.0.1:50051> /help
+
+Available Commands:
+
+  /register <user> <pass>              - Register a new user
+  /login <user> <pass>                 - Authenticate (prove knowledge of password)
+  /batch-register <u1,u2> <p1,p2>      - Batch register multiple users
+  /batch-login <u1,u2> <p1,p2>         - Batch authenticate multiple users
+  /status                              - Show connection status
+  /help                                - Show this help message
+  /quit or /exit                       - Exit gracefully
+
+Examples:
+  /register alice secretpass123
+  /login alice secretpass123
+  /batch-register alice,bob pass1,pass2
+  /batch-login alice,bob pass1,pass2
 ```
 
-**Batch authenticate (multiple users):**
+**Example session:**
 
-```bash
-cargo run --release --bin client --features client -- batch-login \
-  --users alice,bob,charlie \
-  --passwords password1,password2,password3
-```
+```sh
+zkp-client@http://127.0.0.1:50051> /register alice mypassword
+Registered: User 'alice' registered
 
-This uses batch verification on the server, providing 30-50% better performance compared to individual logins.
+zkp-client@http://127.0.0.1:50051> /login alice mypassword
+  Challenge received, expires: 1732409876
+Authenticated: Proof verified successfully
+  Session token: a1b2c3d4e5f6...
 
-**Custom server:**
+zkp-client@http://127.0.0.1:50051> /batch-register bob,charlie pass1,pass2
+Generating statements for 2 users...
+  [OK] bob: User 'bob' registered
+  [OK] charlie: User 'charlie' registered
+Batch complete: 2/2 registered
 
-```bash
-cargo run --release --bin client --features client -- \
-  --server http://192.168.1.100:50051 \
-  login --user alice --password secret123
+zkp-client@http://127.0.0.1:50051> /quit
+
+Goodbye!
 ```
 
 ## Development
@@ -331,8 +361,8 @@ for (i, result) in results.iter().enumerate() {
 [features]
 default = []
 grpc = ["tonic", "prost", "tokio"]           # gRPC support
-server = ["grpc", "tonic-health", "tower", "metrics", "dotenvy"]
-client = ["grpc", "clap", "argon2"]
+server = ["grpc", "tonic-health", "tower", "metrics", "crossterm", "clap", "tracing"]
+client = ["grpc", "clap", "argon2", "crossterm", "tracing"]
 ```
 
 **Build examples:**
@@ -382,3 +412,4 @@ Built with:
 - [merlin](https://github.com/dalek-cryptography/merlin) - Fiat-Shamir transcripts
 - [tonic](https://github.com/hyperium/tonic) - gRPC framework
 - [argon2](https://github.com/RustCrypto/password-hashes) - Password hashing
+- [crossterm](https://github.com/crossterm-rs/crossterm) - Terminal colors and formatting
