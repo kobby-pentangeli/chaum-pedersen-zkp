@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use chaum_pedersen::{
-    BatchVerifier, Group, Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness,
+    BatchVerifier, Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness,
 };
 
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
     println!("==========================================\n");
 
     let mut rng = SecureRng::new();
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
 
     println!("Generating 10 proofs...");
     let batch_size = 10;

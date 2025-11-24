@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "server")]
 use metrics::{counter, histogram};
@@ -15,19 +15,18 @@ use crate::proto::{
     VerificationResult,
 };
 use crate::{
-    BatchVerifier, Group, Parameters, Proof, Ristretto255, SecureRng, Statement, Transcript,
-    Verifier,
+    BatchVerifier, Parameters, Proof, Ristretto255, SecureRng, Statement, Transcript, Verifier,
 };
 
 /// gRPC service implementation for Chaum-Pedersen authentication.
-pub struct AuthServiceImpl<G: Group> {
-    state: ServerState<G>,
+pub struct AuthServiceImpl {
+    state: ServerState,
     rate_limiter: RateLimiter,
 }
 
-impl<G: Group> AuthServiceImpl<G> {
+impl AuthServiceImpl {
     /// Creates a new authentication service with the given state and rate limiter.
-    pub fn new(state: ServerState<G>, rate_limiter: RateLimiter) -> Self {
+    pub fn new(state: ServerState, rate_limiter: RateLimiter) -> Self {
         Self {
             state,
             rate_limiter,
@@ -55,20 +54,10 @@ impl<G: Group> AuthServiceImpl<G> {
 
         Ok(())
     }
-
-    #[allow(clippy::result_large_err)]
-    fn validate_group_name(group_name: &str) -> Result<(), Status> {
-        match group_name {
-            "Ristretto255" => Ok(()),
-            _ => Err(Status::unimplemented(format!(
-                "Group '{group_name}' is not supported. Currently only 'Ristretto255' is implemented."
-            ))),
-        }
-    }
 }
 
 #[tonic::async_trait]
-impl AuthService for AuthServiceImpl<Ristretto255> {
+impl AuthService for AuthServiceImpl {
     async fn register(
         &self,
         request: Request<RegistrationRequest>,
@@ -81,7 +70,6 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         let req = request.into_inner();
 
         Self::validate_user_id(&req.user_id)?;
-        Self::validate_group_name(&req.group_name)?;
 
         if req.y1.is_empty() || req.y2.is_empty() {
             return Err(Status::invalid_argument("Empty y1 or y2 values"));
@@ -111,9 +99,8 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         let user_data = UserData {
             user_id: req.user_id.clone(),
             statement,
-            group_name: req.group_name,
-            registered_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            registered_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
                 .unwrap_or_else(|_| unreachable!("System time is after UNIX_EPOCH"))
                 .as_secs(),
         };
@@ -166,8 +153,6 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
                 "Batch size exceeds maximum limit of 1000",
             ));
         }
-
-        Self::validate_group_name(&req.group_name)?;
 
         counter!("auth.register_batch.users_count").increment(req.user_ids.len() as u64);
 
@@ -256,9 +241,8 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
             let user_data = UserData {
                 user_id: user_id.clone(),
                 statement,
-                group_name: req.group_name.clone(),
-                registered_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                registered_at: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
                     .unwrap_or_else(|_| unreachable!("System time is after UNIX_EPOCH"))
                     .as_secs(),
             };
@@ -379,10 +363,10 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
             .await
             .ok_or_else(|| Status::permission_denied("Authentication failed"))?;
 
-        let proof = Proof::<Ristretto255>::from_bytes(&req.proof)
+        let proof = Proof::from_bytes(&req.proof)
             .map_err(|e| Status::invalid_argument(format!("Invalid proof: {e}")))?;
 
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let verifier = Verifier::new(params, user.statement);
 
         let mut transcript = Transcript::new();
@@ -397,7 +381,6 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         rng.fill_bytes(&mut session_token);
         let session_token_hex = hex::encode(&session_token);
 
-        // Store the session
         let result = self
             .state
             .create_session(session_token_hex.clone(), req.user_id.clone())
@@ -451,7 +434,7 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
         counter!("auth.verify_batch.proofs_count").increment(req.user_ids.len() as u64);
 
         let batch_size = req.user_ids.len();
-        let mut batch_verifier = BatchVerifier::<Ristretto255>::with_capacity(batch_size);
+        let mut batch_verifier = BatchVerifier::with_capacity(batch_size);
         let mut user_contexts = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
@@ -515,7 +498,7 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
                 }
             };
 
-            let proof = match Proof::<Ristretto255>::from_bytes(proof_bytes) {
+            let proof = match Proof::from_bytes(proof_bytes) {
                 Ok(p) => p,
                 Err(e) => {
                     user_contexts
@@ -524,7 +507,7 @@ impl AuthService for AuthServiceImpl<Ristretto255> {
                 }
             };
 
-            let params = Parameters::<Ristretto255>::new();
+            let params = Parameters::new();
 
             match batch_verifier.add_with_context(
                 params,

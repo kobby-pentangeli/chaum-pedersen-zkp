@@ -15,8 +15,8 @@ use chaum_pedersen::{
 
 /// Simple authentication server that stores user statements and manages challenges.
 struct AuthServer {
-    params: Parameters<Ristretto255>,
-    users: HashMap<String, Statement<Ristretto255>>,
+    params: Parameters,
+    users: HashMap<String, Statement>,
     active_challenges: HashMap<String, String>,
     challenge_counter: u64,
 }
@@ -31,7 +31,7 @@ impl AuthServer {
         }
     }
 
-    fn register(&mut self, username: String, statement: Statement<Ristretto255>) {
+    fn register(&mut self, username: String, statement: Statement) {
         println!("  Server: Registering user '{}'", username);
         self.users.insert(username, statement);
     }
@@ -53,12 +53,7 @@ impl AuthServer {
         Some(challenge_id)
     }
 
-    fn verify_authentication(
-        &mut self,
-        username: &str,
-        challenge_id: &str,
-        proof: &Proof<Ristretto255>,
-    ) -> bool {
+    fn verify_authentication(&mut self, username: &str, challenge_id: &str, proof: &Proof) -> bool {
         if let Some(expected_challenge) = self.active_challenges.get(username) {
             if expected_challenge != challenge_id {
                 println!("  Server: Challenge mismatch for user '{}'", username);
@@ -97,8 +92,8 @@ impl AuthServer {
 
 /// Simple authentication client that manages user credentials.
 struct AuthClient {
-    params: Parameters<Ristretto255>,
-    witness: Witness<Ristretto255>,
+    params: Parameters,
+    witness: Witness,
 }
 
 impl AuthClient {
@@ -106,18 +101,17 @@ impl AuthClient {
         let params = Parameters::new();
         let mut rng = SecureRng::new();
 
-        use chaum_pedersen::Group;
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 
         Self { params, witness }
     }
 
-    fn get_registration_statement(&self) -> Statement<Ristretto255> {
+    fn get_registration_statement(&self) -> Statement {
         Statement::from_witness(&self.params, &self.witness)
     }
 
-    fn authenticate(&self, challenge_id: &str) -> Proof<Ristretto255> {
+    fn authenticate(&self, challenge_id: &str) -> Proof {
         let mut rng = SecureRng::new();
         let mut transcript = Transcript::new();
         transcript.append_context(challenge_id.as_bytes());

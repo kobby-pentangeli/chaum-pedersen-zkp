@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use chaum_pedersen::Ristretto255;
 use chaum_pedersen::proto::auth_service_server::AuthServiceServer;
 use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerConfig, ServerState};
 use tokio::{signal, time};
@@ -39,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("  Metrics address: {}", config.metrics.addr());
     }
 
-    let state = ServerState::<Ristretto255>::new();
+    let state = ServerState::new();
     let rate_limiter = RateLimiter::from_config(&config.rate_limit);
     let service = AuthServiceImpl::new(state.clone(), rate_limiter);
 
@@ -85,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (mut health_reporter, health_service) = health_reporter();
     health_reporter
-        .set_serving::<AuthServiceServer<AuthServiceImpl<Ristretto255>>>()
+        .set_serving::<AuthServiceServer<AuthServiceImpl>>()
         .await;
 
     let addr = config.addr();
@@ -170,7 +169,7 @@ async fn shutdown_signal(mut health_reporter: HealthReporter) {
     }
 
     health_reporter
-        .set_not_serving::<AuthServiceServer<AuthServiceImpl<Ristretto255>>>()
+        .set_not_serving::<AuthServiceServer<AuthServiceImpl>>()
         .await;
 
     info!("Initiating graceful shutdown (allowing in-flight requests to complete)");

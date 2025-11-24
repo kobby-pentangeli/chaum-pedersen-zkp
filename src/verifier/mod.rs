@@ -3,7 +3,7 @@
 //! This module contains the verifier's logic for validating zero-knowledge proofs
 //! and managing server-side state, configuration, and gRPC services.
 
-use crate::{Group, Parameters, Proof, Result, Statement, Transcript};
+use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
 
 /// Batch verification for multiple proofs.
 pub mod batch;
@@ -39,27 +39,27 @@ pub use state::ServerState;
 /// - Use the same transcript context that was used during proof generation
 /// - Reject proofs if the transcript context doesn't match (prevents replay attacks)
 /// - Verification is deterministic and constant-time to resist timing attacks
-pub struct Verifier<G: Group> {
-    params: Parameters<G>,
-    statement: Statement<G>,
+pub struct Verifier {
+    params: Parameters,
+    statement: Statement,
 }
 
-impl<G: Group> Verifier<G> {
+impl Verifier {
     /// Creates a new verifier with the given parameters and statement.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Ristretto255, Group};
+    /// use chaum_pedersen::{Verifier, Parameters, Statement, Ristretto255};
     ///
-    /// let params = Parameters::<Ristretto255>::new();
-    /// let g = <Ristretto255 as Group>::generator_g();
-    /// let h = <Ristretto255 as Group>::generator_h();
-    /// let statement = Statement::<Ristretto255>::new(g, h);
+    /// let params = Parameters::new();
+    /// let g = Ristretto255::generator_g();
+    /// let h = Ristretto255::generator_h();
+    /// let statement = Statement::new(g, h);
     ///
     /// let verifier = Verifier::new(params, statement);
     /// ```
-    pub fn new(params: Parameters<G>, statement: Statement<G>) -> Self {
+    pub fn new(params: Parameters, statement: Statement) -> Self {
         Self { params, statement }
     }
 
@@ -70,19 +70,19 @@ impl<G: Group> Verifier<G> {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Proof, Parameters, Statement, Ristretto255, Group};
+    /// use chaum_pedersen::{Verifier, Proof, Parameters, Statement, Ristretto255};
     ///
-    /// # let params = Parameters::<Ristretto255>::new();
-    /// # let statement = Statement::<Ristretto255>::new(
-    /// #     <Ristretto255 as Group>::generator_g(),
-    /// #     <Ristretto255 as Group>::generator_h()
+    /// # let params = Parameters::new();
+    /// # let statement = Statement::new(
+    /// #     Ristretto255::generator_g(),
+    /// #     Ristretto255::generator_h()
     /// # );
     /// # let proof = todo!(); // Assume we have a proof
     /// let verifier = Verifier::new(params, statement);
     /// let result = verifier.verify(&proof);
     /// assert!(result.is_ok());
     /// ```
-    pub fn verify(&self, proof: &Proof<G>) -> Result<()> {
+    pub fn verify(&self, proof: &Proof) -> Result<()> {
         let mut transcript = Transcript::new();
         self.verify_with_transcript(proof, &mut transcript)
     }
@@ -102,12 +102,12 @@ impl<G: Group> Verifier<G> {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Transcript, Ristretto255, Group};
+    /// use chaum_pedersen::{Verifier, Parameters, Statement, Transcript, Ristretto255};
     ///
-    /// # let params = Parameters::<Ristretto255>::new();
-    /// # let statement = Statement::<Ristretto255>::new(
-    /// #     <Ristretto255 as Group>::generator_g(),
-    /// #     <Ristretto255 as Group>::generator_h()
+    /// # let params = Parameters::new();
+    /// # let statement = Statement::new(
+    /// #     Ristretto255::generator_g(),
+    /// #     Ristretto255::generator_h()
     /// # );
     /// # let proof = todo!(); // Assume we have a proof
     /// let verifier = Verifier::new(params, statement);
@@ -117,28 +117,23 @@ impl<G: Group> Verifier<G> {
     ///
     /// let result = verifier.verify_with_transcript(&proof, &mut transcript);
     /// ```
-    pub fn verify_with_transcript(
-        &self,
-        proof: &Proof<G>,
-        transcript: &mut Transcript,
-    ) -> Result<()> {
+    pub fn verify_with_transcript(&self, proof: &Proof, transcript: &mut Transcript) -> Result<()> {
         self.statement.validate()?;
 
-        transcript.append_group_name(G::name());
         transcript.append_parameters(
-            &G::element_to_bytes(self.params.generator_g()),
-            &G::element_to_bytes(self.params.generator_h()),
+            &Ristretto255::element_to_bytes(self.params.generator_g()),
+            &Ristretto255::element_to_bytes(self.params.generator_h()),
         );
         transcript.append_statement(
-            &G::element_to_bytes(self.statement.y1()),
-            &G::element_to_bytes(self.statement.y2()),
+            &Ristretto255::element_to_bytes(self.statement.y1()),
+            &Ristretto255::element_to_bytes(self.statement.y2()),
         );
         transcript.append_commitment(
-            &G::element_to_bytes(proof.commitment().r1()),
-            &G::element_to_bytes(proof.commitment().r2()),
+            &Ristretto255::element_to_bytes(proof.commitment().r1()),
+            &Ristretto255::element_to_bytes(proof.commitment().r2()),
         );
 
-        let challenge = transcript.challenge_scalar::<G>();
+        let challenge = transcript.challenge_scalar();
 
         self.verify_response(&challenge, proof)
     }
@@ -146,7 +141,7 @@ impl<G: Group> Verifier<G> {
     /// Interactive protocol: verifies the response (fourth message).
     ///
     /// Checks that `g^s = r1 * y1^c` and `h^s = r2 * y2^c`.
-    pub fn verify_response(&self, challenge: &G::Scalar, proof: &Proof<G>) -> Result<()> {
+    pub fn verify_response(&self, challenge: &Scalar, proof: &Proof) -> Result<()> {
         let g = self.params.generator_g();
         let h = self.params.generator_h();
         let y1 = self.statement.y1();
@@ -155,19 +150,19 @@ impl<G: Group> Verifier<G> {
         let r2 = proof.commitment().r2();
         let s = proof.response().s();
 
-        let lhs1 = G::scalar_mul(g, s);
-        let y1_c = G::scalar_mul(y1, challenge);
-        let rhs1 = G::element_mul(r1, &y1_c);
+        let lhs1 = Ristretto255::scalar_mul(g, s);
+        let y1_c = Ristretto255::scalar_mul(y1, challenge);
+        let rhs1 = Ristretto255::element_mul(r1, &y1_c);
 
-        let lhs2 = G::scalar_mul(h, s);
-        let y2_c = G::scalar_mul(y2, challenge);
-        let rhs2 = G::element_mul(r2, &y2_c);
+        let lhs2 = Ristretto255::scalar_mul(h, s);
+        let y2_c = Ristretto255::scalar_mul(y2, challenge);
+        let rhs2 = Ristretto255::element_mul(r2, &y2_c);
 
         let check1 = lhs1 == rhs1;
         let check2 = lhs2 == rhs2;
 
         if !check1 || !check2 {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Proof verification failed".to_string(),
             ));
         }
@@ -179,12 +174,12 @@ impl<G: Group> Verifier<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Prover, Ristretto255, SecureRng, Witness};
+    use crate::{Prover, SecureRng, Witness};
 
     #[test]
     fn verifier_accepts_valid_proof() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 
@@ -199,7 +194,7 @@ mod tests {
     #[test]
     fn verifier_rejects_invalid_statement() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 
@@ -217,7 +212,7 @@ mod tests {
     #[test]
     fn interactive_verification() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 

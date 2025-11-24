@@ -8,15 +8,14 @@
 //! - Verifying the proof
 
 use chaum_pedersen::{
-    Group, Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-    Witness,
+    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
 };
 
 fn main() {
     println!("Chaum-Pedersen Zero-Knowledge Protocol: Basic Example\n");
 
     println!("Step 1: Initialize parameters and RNG");
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     println!("  Using Ristretto255 group with default generators\n");
 
@@ -43,8 +42,7 @@ fn main() {
     println!("  Proof size: {} bytes\n", proof_bytes.len());
 
     println!("Step 6: Deserialize proof");
-    let received_proof =
-        Proof::<Ristretto255>::from_bytes(&proof_bytes).expect("Deserialization should succeed");
+    let received_proof = Proof::from_bytes(&proof_bytes).expect("Deserialization should succeed");
     println!("  Proof deserialized successfully\n");
 
     println!("Step 7: Verify the proof");

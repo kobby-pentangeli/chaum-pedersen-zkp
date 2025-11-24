@@ -1,11 +1,10 @@
 use chaum_pedersen::{
-    Group, Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-    Witness,
+    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
 };
 
 #[test]
 fn prevent_replay_attack_with_different_contexts() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x = Ristretto255::random_scalar(&mut rng);
@@ -41,7 +40,7 @@ fn prevent_replay_attack_with_different_contexts() {
 
 #[test]
 fn reject_invalid_proof_corrupted_commitment() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x = Ristretto255::random_scalar(&mut rng);
@@ -60,7 +59,7 @@ fn reject_invalid_proof_corrupted_commitment() {
         proof_bytes[commitment_start + 5] ^= 0xFF;
     }
 
-    if let Ok(corrupted_proof) = Proof::<Ristretto255>::from_bytes(&proof_bytes) {
+    if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
         let verifier = Verifier::new(params, statement);
         assert!(
@@ -74,7 +73,7 @@ fn reject_invalid_proof_corrupted_commitment() {
 
 #[test]
 fn reject_invalid_proof_corrupted_response() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x = Ristretto255::random_scalar(&mut rng);
@@ -93,7 +92,7 @@ fn reject_invalid_proof_corrupted_response() {
         proof_bytes[len - 10] ^= 0xFF;
     }
 
-    if let Ok(corrupted_proof) = Proof::<Ristretto255>::from_bytes(&proof_bytes) {
+    if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
         let verifier = Verifier::new(params, statement);
         assert!(
@@ -107,7 +106,7 @@ fn reject_invalid_proof_corrupted_response() {
 
 #[test]
 fn proof_cannot_be_used_for_different_statement() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x1 = Ristretto255::random_scalar(&mut rng);
@@ -136,7 +135,7 @@ fn proof_cannot_be_used_for_different_statement() {
 #[test]
 fn detect_identity_element() {
     let identity = Ristretto255::identity();
-    let statement: Statement<Ristretto255> = Statement::new(identity.clone(), identity.clone());
+    let statement = Statement::new(identity.clone(), identity.clone());
 
     assert!(
         Ristretto255::is_identity(&identity),
@@ -154,7 +153,7 @@ fn proof_deserialization_rejects_malformed_data() {
     let test_cases = vec![vec![], vec![0x00], vec![0xFF; 10], vec![0x01; 1000]];
 
     for malformed_data in test_cases {
-        let result = Proof::<Ristretto255>::from_bytes(&malformed_data);
+        let result = Proof::from_bytes(&malformed_data);
         assert!(
             result.is_err(),
             "Malformed proof data should be rejected: {:?}",
@@ -165,7 +164,7 @@ fn proof_deserialization_rejects_malformed_data() {
 
 #[test]
 fn multiple_proofs_for_same_witness_are_different() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x = Ristretto255::random_scalar(&mut rng);
@@ -211,7 +210,7 @@ fn multiple_proofs_for_same_witness_are_different() {
 
 #[test]
 fn proof_size_is_reasonable() {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
 
     let x = Ristretto255::random_scalar(&mut rng);

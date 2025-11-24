@@ -1,13 +1,12 @@
 use chaum_pedersen::{
-    Group, Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-    Witness,
+    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
 };
 use proptest::prelude::*;
 
 proptest! {
     #[test]
     fn proof_verifies_for_any_valid_witness(_seed in any::<u64>()) {
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let mut rng = SecureRng::new();
 
         let x = Ristretto255::random_scalar(&mut rng);
@@ -28,7 +27,7 @@ proptest! {
 
     #[test]
     fn proof_fails_for_wrong_statement(_seed1 in any::<u64>(), _seed2 in any::<u64>()) {
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let mut rng = SecureRng::new();
 
         let x1 = Ristretto255::random_scalar(&mut rng);
@@ -57,7 +56,7 @@ proptest! {
 
     #[test]
     fn proof_serialization_roundtrip(_seed in any::<u64>()) {
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let mut rng = SecureRng::new();
 
         let x = Ristretto255::random_scalar(&mut rng);
@@ -70,7 +69,7 @@ proptest! {
             .expect("Proof generation should succeed");
 
         let serialized = proof.to_bytes().expect("Serialization should succeed");
-        let deserialized = Proof::<Ristretto255>::from_bytes(&serialized)
+        let deserialized = Proof::from_bytes(&serialized)
             .expect("Deserialization should succeed");
 
         let mut verify_transcript = Transcript::new();
@@ -82,7 +81,7 @@ proptest! {
 
     #[test]
     fn statement_serialization_preserves_validity(_seed in any::<u64>()) {
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let mut rng = SecureRng::new();
 
         let x = Ristretto255::random_scalar(&mut rng);
@@ -97,8 +96,7 @@ proptest! {
         let y2_reconstructed = Ristretto255::element_from_bytes(&y2_bytes)
             .expect("y2 deserialization should succeed");
 
-        let statement_reconstructed: Statement<Ristretto255> =
-            Statement::new(y1_reconstructed, y2_reconstructed);
+        let statement_reconstructed = Statement::new(y1_reconstructed, y2_reconstructed);
 
         prop_assert!(
             statement_reconstructed.validate().is_ok(),

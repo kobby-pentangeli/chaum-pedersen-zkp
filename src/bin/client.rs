@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use chaum_pedersen::proto::auth_service_client::AuthServiceClient;
 use chaum_pedersen::proto::{
@@ -7,9 +8,10 @@ use chaum_pedersen::proto::{
     VerificationRequest,
 };
 use chaum_pedersen::{
-    Group, Parameters, Prover, Ristretto255, SecureRng, Statement, Transcript, Witness,
+    Parameters, Prover, Ristretto255, Scalar, SecureRng, Statement, Transcript, Witness,
 };
 use clap::{Parser, Subcommand};
+use sha2::{Digest, Sha256};
 use tonic::Request;
 
 #[derive(Parser)]
@@ -68,10 +70,7 @@ enum Commands {
     },
 }
 
-fn password_to_scalar(password: &str, user_id: &str) -> <Ristretto255 as Group>::Scalar {
-    use argon2::password_hash::SaltString;
-    use sha2::{Digest, Sha256};
-
+fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
     let mut hasher = Sha256::new();
     hasher.update(b"chaum-pedersen-v1.0.0-");
     hasher.update(user_id.as_bytes());
@@ -108,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Registering user '{user}'...");
 
             let x = password_to_scalar(&password, &user);
-            let params = Parameters::<Ristretto255>::new();
+            let params = Parameters::new();
             let witness = Witness::new(x);
             let statement = Statement::from_witness(&params, &witness);
 
@@ -119,7 +118,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 user_id: user.clone(),
                 y1: y1_bytes,
                 y2: y2_bytes,
-                group_name: "Ristretto255".to_string(),
             });
 
             let response = client.register(request).await?;
@@ -166,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
 
                 let x = password_to_scalar(&passwords[i], user);
-                let params = Parameters::<Ristretto255>::new();
+                let params = Parameters::new();
                 let witness = Witness::new(x);
                 let statement = Statement::from_witness(&params, &witness);
 
@@ -176,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 y1_values.push(y1_bytes);
                 y2_values.push(y2_bytes);
 
-                println!("✓");
+                println!("done");
             }
 
             println!();
@@ -188,7 +186,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 user_ids: users.clone(),
                 y1_values,
                 y2_values,
-                group_name: "Ristretto255".to_string(),
             });
 
             let response = client.register_batch(request).await?;
@@ -210,7 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if result.success {
                     success_count += 1;
                     println!(
-                        "[{}/{}] ✓ User '{}': {}",
+                        "[{}/{}] OK User '{}': {}",
                         i + 1,
                         batch_size,
                         users[i],
@@ -219,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     failure_count += 1;
                     println!(
-                        "[{}/{}] ✗ User '{}': {}",
+                        "[{}/{}] FAIL User '{}': {}",
                         i + 1,
                         batch_size,
                         users[i],
@@ -261,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Challenge received, expires at: {}", response.expires_at);
 
             let x = password_to_scalar(&password, &user);
-            let params = Parameters::<Ristretto255>::new();
+            let params = Parameters::new();
             let witness = Witness::new(x);
             let prover = Prover::new(params, witness);
 
@@ -337,7 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let response = response.into_inner();
 
                 challenge_ids.push(response.challenge_id.clone());
-                println!("✓");
+                println!("done");
 
                 print!(
                     "[{}/{}] Generating proof for '{}'... ",
@@ -347,7 +344,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
 
                 let x = password_to_scalar(&passwords[i], user);
-                let params = Parameters::<Ristretto255>::new();
+                let params = Parameters::new();
                 let witness = Witness::new(x);
                 let prover = Prover::new(params, witness);
 
@@ -364,7 +361,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or_else(|e| panic!("Proof serialization failed: {e}"));
 
                 proofs.push(proof_bytes);
-                println!("✓");
+                println!("done");
             }
 
             println!();
@@ -397,7 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if result.success {
                     success_count += 1;
                     println!(
-                        "[{}/{}] ✓ User '{}': {}",
+                        "[{}/{}] OK User '{}': {}",
                         i + 1,
                         batch_size,
                         users[i],
@@ -409,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     failure_count += 1;
                     println!(
-                        "[{}/{}] ✗ User '{}': {}",
+                        "[{}/{}] FAIL User '{}': {}",
                         i + 1,
                         batch_size,
                         users[i],

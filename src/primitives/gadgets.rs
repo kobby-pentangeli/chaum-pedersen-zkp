@@ -1,8 +1,12 @@
-use core::marker::PhantomData;
+//! Protocol gadgets for Chaum-Pedersen zero-knowledge proofs.
+//!
+//! This module contains the core data structures used in the protocol:
+//! parameters, witness, statement, commitment, response, and proof.
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{Group, Result};
+use super::{Element, Ristretto255, Scalar};
+use crate::{Error, Result};
 
 /// Protocol version for serialization compatibility.
 const PROTOCOL_VERSION: u8 = 1;
@@ -18,13 +22,12 @@ const PROTOCOL_VERSION: u8 = 1;
 /// discrete logarithm relationship. Using the default generators from [`Parameters::new()`]
 /// is recommended for most applications.
 #[derive(Clone, Debug)]
-pub struct Parameters<G: Group> {
-    generator_g: G::Element,
-    generator_h: G::Element,
-    _phantom: PhantomData<G>,
+pub struct Parameters {
+    generator_g: Element,
+    generator_h: Element,
 }
 
-impl<G: Group> Parameters<G> {
+impl Parameters {
     /// Creates new parameters with the default generators from the group.
     ///
     /// This is the recommended way to create parameters. The default generators
@@ -33,15 +36,14 @@ impl<G: Group> Parameters<G> {
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Parameters, Ristretto255};
+    /// use chaum_pedersen::Parameters;
     ///
-    /// let params = Parameters::<Ristretto255>::new();
+    /// let params = Parameters::new();
     /// ```
     pub fn new() -> Self {
         Self {
-            generator_g: G::generator_g(),
-            generator_h: G::generator_h(),
-            _phantom: PhantomData,
+            generator_g: Ristretto255::generator_g(),
+            generator_h: Ristretto255::generator_h(),
         }
     }
 
@@ -66,30 +68,30 @@ impl<G: Group> Parameters<G> {
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Parameters, Ristretto255, Group};
+    /// use chaum_pedersen::{Parameters, Ristretto255};
     ///
-    /// let g = <Ristretto255 as Group>::generator_g();
-    /// let h = <Ristretto255 as Group>::generator_h();
-    /// let params = Parameters::<Ristretto255>::with_generators(g, h).unwrap();
+    /// let g = Ristretto255::generator_g();
+    /// let h = Ristretto255::generator_h();
+    /// let params = Parameters::with_generators(g, h).unwrap();
     /// ```
-    pub fn with_generators(g: G::Element, h: G::Element) -> Result<Self> {
-        G::validate_element(&g)?;
-        G::validate_element(&h)?;
+    pub fn with_generators(g: Element, h: Element) -> Result<Self> {
+        Ristretto255::validate_element(&g)?;
+        Ristretto255::validate_element(&h)?;
 
-        if G::is_identity(&g) {
-            return Err(crate::Error::InvalidParams(
+        if Ristretto255::is_identity(&g) {
+            return Err(Error::InvalidParams(
                 "Generator g cannot be identity".to_string(),
             ));
         }
 
-        if G::is_identity(&h) {
-            return Err(crate::Error::InvalidParams(
+        if Ristretto255::is_identity(&h) {
+            return Err(Error::InvalidParams(
                 "Generator h cannot be identity".to_string(),
             ));
         }
 
         if g == h {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Generators g and h must be different".to_string(),
             ));
         }
@@ -97,22 +99,21 @@ impl<G: Group> Parameters<G> {
         Ok(Self {
             generator_g: g,
             generator_h: h,
-            _phantom: PhantomData,
         })
     }
 
     /// Returns the first generator `g`.
-    pub fn generator_g(&self) -> &G::Element {
+    pub fn generator_g(&self) -> &Element {
         &self.generator_g
     }
 
     /// Returns the second generator `h`.
-    pub fn generator_h(&self) -> &G::Element {
+    pub fn generator_h(&self) -> &Element {
         &self.generator_h
     }
 }
 
-impl<G: Group> Default for Parameters<G> {
+impl Default for Parameters {
     fn default() -> Self {
         Self::new()
     }
@@ -131,33 +132,33 @@ impl<G: Group> Default for Parameters<G> {
 /// - Never reuse witness values across different protocol instances
 /// - Keep witness values secret and never transmit them
 #[derive(Clone, Debug, Zeroize, ZeroizeOnDrop)]
-pub struct Witness<G: Group> {
-    x: G::Scalar,
+pub struct Witness {
+    x: Scalar,
 }
 
-impl<G: Group> Witness<G> {
+impl Witness {
     /// Creates a new witness from a scalar value.
     ///
     /// # Security
     ///
     /// The scalar should be generated using a cryptographically secure random number
-    /// generator. Use [`Group::random_scalar`] with [`crate::SecureRng`].
+    /// generator. Use [`Ristretto255::random_scalar`] with [`crate::SecureRng`].
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Witness, Ristretto255, Group, SecureRng};
+    /// use chaum_pedersen::{Witness, Ristretto255, SecureRng};
     ///
     /// let mut rng = SecureRng::new();
     /// let x = Ristretto255::random_scalar(&mut rng);
-    /// let witness = Witness::<Ristretto255>::new(x);
+    /// let witness = Witness::new(x);
     /// ```
-    pub fn new(x: G::Scalar) -> Self {
+    pub fn new(x: Scalar) -> Self {
         Self { x }
     }
 
     /// Returns a reference to the secret scalar.
-    pub(crate) fn secret(&self) -> &G::Scalar {
+    pub(crate) fn secret(&self) -> &Scalar {
         &self.x
     }
 }
@@ -173,27 +174,27 @@ impl<G: Group> Witness<G> {
 /// - Use [`Statement::validate`] to ensure the values are in the correct subgroup
 /// - Statements should be bound to proofs via transcript context to prevent replay attacks
 #[derive(Clone, Debug)]
-pub struct Statement<G: Group> {
-    y1: G::Element,
-    y2: G::Element,
+pub struct Statement {
+    y1: Element,
+    y2: Element,
 }
 
-impl<G: Group> Statement<G> {
+impl Statement {
     /// Creates a new statement from the public values.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Statement, Ristretto255, Group};
+    /// use chaum_pedersen::{Statement, Ristretto255};
     ///
-    /// let g = <Ristretto255 as Group>::generator_g();
-    /// let h = <Ristretto255 as Group>::generator_h();
+    /// let g = Ristretto255::generator_g();
+    /// let h = Ristretto255::generator_h();
     /// let y1 = g.clone();
     /// let y2 = h.clone();
     ///
-    /// let statement = Statement::<Ristretto255>::new(y1, y2);
+    /// let statement = Statement::new(y1, y2);
     /// ```
-    pub fn new(y1: G::Element, y2: G::Element) -> Self {
+    pub fn new(y1: Element, y2: Element) -> Self {
         Self { y1, y2 }
     }
 
@@ -204,35 +205,35 @@ impl<G: Group> Statement<G> {
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Statement, Parameters, Witness, Ristretto255, Group, SecureRng};
+    /// use chaum_pedersen::{Statement, Parameters, Witness, Ristretto255, SecureRng};
     ///
-    /// let params = Parameters::<Ristretto255>::new();
+    /// let params = Parameters::new();
     /// let mut rng = SecureRng::new();
     /// let x = Ristretto255::random_scalar(&mut rng);
     /// let witness = Witness::new(x);
     ///
     /// let statement = Statement::from_witness(&params, &witness);
     /// ```
-    pub fn from_witness(params: &Parameters<G>, witness: &Witness<G>) -> Self {
-        let y1 = G::scalar_mul(params.generator_g(), witness.secret());
-        let y2 = G::scalar_mul(params.generator_h(), witness.secret());
+    pub fn from_witness(params: &Parameters, witness: &Witness) -> Self {
+        let y1 = Ristretto255::scalar_mul(params.generator_g(), witness.secret());
+        let y2 = Ristretto255::scalar_mul(params.generator_h(), witness.secret());
         Self { y1, y2 }
     }
 
     /// Returns the first public value `y1 = g^x`.
-    pub fn y1(&self) -> &G::Element {
+    pub fn y1(&self) -> &Element {
         &self.y1
     }
 
     /// Returns the second public value `y2 = h^x`.
-    pub fn y2(&self) -> &G::Element {
+    pub fn y2(&self) -> &Element {
         &self.y2
     }
 
     /// Validates that both elements are in the correct subgroup.
     pub fn validate(&self) -> Result<()> {
-        G::validate_element(&self.y1)?;
-        G::validate_element(&self.y2)?;
+        Ristretto255::validate_element(&self.y1)?;
+        Ristretto255::validate_element(&self.y2)?;
         Ok(())
     }
 }
@@ -241,24 +242,24 @@ impl<G: Group> Statement<G> {
 ///
 /// First message from prover: `r1 = g^k`, `r2 = h^k` for random `k`.
 #[derive(Clone, Debug)]
-pub struct Commitment<G: Group> {
-    r1: G::Element,
-    r2: G::Element,
+pub struct Commitment {
+    r1: Element,
+    r2: Element,
 }
 
-impl<G: Group> Commitment<G> {
+impl Commitment {
     /// Creates a new commitment from the commitment values.
-    pub fn new(r1: G::Element, r2: G::Element) -> Self {
+    pub fn new(r1: Element, r2: Element) -> Self {
         Self { r1, r2 }
     }
 
     /// Returns the first commitment value `r1 = g^k`.
-    pub fn r1(&self) -> &G::Element {
+    pub fn r1(&self) -> &Element {
         &self.r1
     }
 
     /// Returns the second commitment value `r2 = h^k`.
-    pub fn r2(&self) -> &G::Element {
+    pub fn r2(&self) -> &Element {
         &self.r2
     }
 }
@@ -268,18 +269,18 @@ impl<G: Group> Commitment<G> {
 /// Prover's response to challenge: `s = k + c*x`.
 #[derive(Clone, Debug, Zeroize)]
 #[zeroize(drop)]
-pub struct Response<G: Group> {
-    s: G::Scalar,
+pub struct Response {
+    s: Scalar,
 }
 
-impl<G: Group> Response<G> {
+impl Response {
     /// Creates a new response from a scalar value.
-    pub fn new(s: G::Scalar) -> Self {
+    pub fn new(s: Scalar) -> Self {
         Self { s }
     }
 
     /// Returns a reference to the response scalar.
-    pub fn s(&self) -> &G::Scalar {
+    pub fn s(&self) -> &Scalar {
         &self.s
     }
 }
@@ -303,17 +304,17 @@ impl<G: Group> Response<G> {
 /// using [`Proof::from_bytes`]. The serialization format is versioned for
 /// forward compatibility.
 #[derive(Clone, Debug)]
-pub struct Proof<G: Group> {
+pub struct Proof {
     version: u8,
-    commitment: Commitment<G>,
-    response: Response<G>,
+    commitment: Commitment,
+    response: Response,
 }
 
-impl<G: Group> Proof<G> {
+impl Proof {
     /// Creates a new proof from commitment and response.
     ///
     /// This is typically called by [`Prover`](crate::Prover) and not directly by users.
-    pub fn new(commitment: Commitment<G>, response: Response<G>) -> Self {
+    pub fn new(commitment: Commitment, response: Response) -> Self {
         Self {
             version: PROTOCOL_VERSION,
             commitment,
@@ -327,12 +328,12 @@ impl<G: Group> Proof<G> {
     }
 
     /// Returns a reference to the commitment.
-    pub fn commitment(&self) -> &Commitment<G> {
+    pub fn commitment(&self) -> &Commitment {
         &self.commitment
     }
 
     /// Returns a reference to the response.
-    pub fn response(&self) -> &Response<G> {
+    pub fn response(&self) -> &Response {
         &self.response
     }
 
@@ -340,9 +341,9 @@ impl<G: Group> Proof<G> {
     ///
     /// Format: `[version (1 byte)][r1_len (4 bytes)][r1][r2_len (4 bytes)][r2][s_len (4 bytes)][s]`
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let r1_bytes = G::element_to_bytes(self.commitment.r1());
-        let r2_bytes = G::element_to_bytes(self.commitment.r2());
-        let s_bytes = G::scalar_to_bytes(self.response.s());
+        let r1_bytes = Ristretto255::element_to_bytes(self.commitment.r1());
+        let r2_bytes = Ristretto255::element_to_bytes(self.commitment.r2());
+        let s_bytes = Ristretto255::scalar_to_bytes(self.response.s());
 
         let mut result = Vec::new();
         result.push(self.version);
@@ -366,7 +367,7 @@ impl<G: Group> Proof<G> {
         const MIN_PROOF_SIZE: usize = 1 + 4 + 1 + 4 + 1 + 4 + 1;
 
         if bytes.len() < MIN_PROOF_SIZE {
-            return Err(crate::Error::InvalidParams(format!(
+            return Err(Error::InvalidParams(format!(
                 "Proof too small: {} bytes",
                 bytes.len()
             )));
@@ -374,7 +375,7 @@ impl<G: Group> Proof<G> {
 
         let version = bytes[0];
         if version != PROTOCOL_VERSION {
-            return Err(crate::Error::InvalidParams(format!(
+            return Err(Error::InvalidParams(format!(
                 "Unsupported proof version: {}",
                 version
             )));
@@ -383,7 +384,7 @@ impl<G: Group> Proof<G> {
         let mut pos = 1;
 
         if pos + 4 > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: missing r1 length".to_string(),
             ));
         }
@@ -395,22 +396,22 @@ impl<G: Group> Proof<G> {
         pos += 4;
 
         if r1_len == 0 || r1_len > MAX_ELEMENT_SIZE {
-            return Err(crate::Error::InvalidParams(format!(
+            return Err(Error::InvalidParams(format!(
                 "Invalid r1 length: {}",
                 r1_len
             )));
         }
 
         if pos + r1_len > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: incomplete r1 data".to_string(),
             ));
         }
-        let r1 = G::element_from_bytes(&bytes[pos..pos + r1_len])?;
+        let r1 = Ristretto255::element_from_bytes(&bytes[pos..pos + r1_len])?;
         pos += r1_len;
 
         if pos + 4 > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: missing r2 length".to_string(),
             ));
         }
@@ -422,22 +423,22 @@ impl<G: Group> Proof<G> {
         pos += 4;
 
         if r2_len == 0 || r2_len > MAX_ELEMENT_SIZE {
-            return Err(crate::Error::InvalidParams(format!(
+            return Err(Error::InvalidParams(format!(
                 "Invalid r2 length: {}",
                 r2_len
             )));
         }
 
         if pos + r2_len > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: incomplete r2 data".to_string(),
             ));
         }
-        let r2 = G::element_from_bytes(&bytes[pos..pos + r2_len])?;
+        let r2 = Ristretto255::element_from_bytes(&bytes[pos..pos + r2_len])?;
         pos += r2_len;
 
         if pos + 4 > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: missing s length".to_string(),
             ));
         }
@@ -449,40 +450,35 @@ impl<G: Group> Proof<G> {
         pos += 4;
 
         if s_len == 0 || s_len > MAX_SCALAR_SIZE {
-            return Err(crate::Error::InvalidParams(format!(
-                "Invalid s length: {}",
-                s_len
-            )));
+            return Err(Error::InvalidParams(format!("Invalid s length: {}", s_len)));
         }
 
         if pos + s_len > bytes.len() {
-            return Err(crate::Error::InvalidParams(
+            return Err(Error::InvalidParams(
                 "Truncated proof: incomplete s data".to_string(),
             ));
         }
-        let s = G::scalar_from_bytes(&bytes[pos..pos + s_len])?;
+        let s = Ristretto255::scalar_from_bytes(&bytes[pos..pos + s_len])?;
         pos += s_len;
 
         if pos != bytes.len() {
-            return Err(crate::Error::InvalidParams(format!(
+            return Err(Error::InvalidParams(format!(
                 "Proof has {} trailing bytes",
                 bytes.len() - pos
             )));
         }
 
-        G::validate_element(&r1)?;
-        G::validate_element(&r2)?;
+        Ristretto255::validate_element(&r1)?;
+        Ristretto255::validate_element(&r2)?;
 
-        if G::is_identity(&r1) || G::is_identity(&r2) {
-            return Err(crate::Error::InvalidParams(
+        if Ristretto255::is_identity(&r1) || Ristretto255::is_identity(&r2) {
+            return Err(Error::InvalidParams(
                 "Commitment contains identity element".to_string(),
             ));
         }
 
-        if G::scalar_is_zero(&s) {
-            return Err(crate::Error::InvalidParams(
-                "Response scalar is zero".to_string(),
-            ));
+        if Ristretto255::scalar_is_zero(&s) {
+            return Err(Error::InvalidParams("Response scalar is zero".to_string()));
         }
 
         Ok(Proof {
@@ -496,11 +492,11 @@ impl<G: Group> Proof<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Ristretto255, SecureRng};
+    use crate::SecureRng;
 
     #[test]
     fn parameters_default() {
-        let params = Parameters::<Ristretto255>::default();
+        let params = Parameters::default();
         assert_eq!(params.generator_g(), &Ristretto255::generator_g());
         assert_eq!(params.generator_h(), &Ristretto255::generator_h());
     }
@@ -510,20 +506,20 @@ mod tests {
         let identity = Ristretto255::identity();
         let g = Ristretto255::generator_g();
 
-        assert!(Parameters::<Ristretto255>::with_generators(identity.clone(), g.clone()).is_err());
-        assert!(Parameters::<Ristretto255>::with_generators(g.clone(), identity).is_err());
+        assert!(Parameters::with_generators(identity.clone(), g.clone()).is_err());
+        assert!(Parameters::with_generators(g.clone(), identity).is_err());
     }
 
     #[test]
     fn parameters_rejects_equal_generators() {
         let g = Ristretto255::generator_g();
-        assert!(Parameters::<Ristretto255>::with_generators(g.clone(), g).is_err());
+        assert!(Parameters::with_generators(g.clone(), g).is_err());
     }
 
     #[test]
     fn statement_from_witness() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x.clone());
 
@@ -546,25 +542,25 @@ mod tests {
             &Ristretto255::generator_h(),
             &Ristretto255::random_scalar(&mut rng),
         );
-        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+        let commitment = Commitment::new(r1, r2);
         let response = Response::new(Ristretto255::random_scalar(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let bytes = proof.to_bytes().unwrap();
-        let deserialized = Proof::<Ristretto255>::from_bytes(&bytes).unwrap();
+        let deserialized = Proof::from_bytes(&bytes).unwrap();
 
         assert_eq!(deserialized.version(), PROTOCOL_VERSION);
     }
 
     #[test]
     fn proof_from_bytes_rejects_empty() {
-        let result = Proof::<Ristretto255>::from_bytes(&[]);
+        let result = Proof::from_bytes(&[]);
         assert!(result.is_err());
     }
 
     #[test]
     fn proof_from_bytes_rejects_truncated() {
-        let result = Proof::<Ristretto255>::from_bytes(&[1, 0, 0, 0]);
+        let result = Proof::from_bytes(&[1, 0, 0, 0]);
         assert!(result.is_err());
     }
 
@@ -573,7 +569,7 @@ mod tests {
         let mut bytes = vec![99];
         bytes.extend_from_slice(&[0, 0, 0, 32]);
         bytes.resize(100, 0);
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 
@@ -581,7 +577,7 @@ mod tests {
     fn proof_from_bytes_rejects_zero_length_fields() {
         let mut bytes = vec![PROTOCOL_VERSION];
         bytes.extend_from_slice(&[0, 0, 0, 0]);
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 
@@ -589,7 +585,7 @@ mod tests {
     fn proof_from_bytes_rejects_excessive_length() {
         let mut bytes = vec![PROTOCOL_VERSION];
         bytes.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 
@@ -604,14 +600,14 @@ mod tests {
             &Ristretto255::generator_h(),
             &Ristretto255::random_scalar(&mut rng),
         );
-        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+        let commitment = Commitment::new(r1, r2);
         let response = Response::new(Ristretto255::random_scalar(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let mut bytes = proof.to_bytes().unwrap();
         bytes.push(0xFF);
 
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 
@@ -624,12 +620,12 @@ mod tests {
             &Ristretto255::random_scalar(&mut rng),
         );
 
-        let commitment: Commitment<Ristretto255> = Commitment::new(identity, r2);
+        let commitment = Commitment::new(identity, r2);
         let response = Response::new(Ristretto255::random_scalar(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let bytes = proof.to_bytes().unwrap();
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 
@@ -644,14 +640,14 @@ mod tests {
             &Ristretto255::generator_h(),
             &Ristretto255::random_scalar(&mut rng),
         );
-        let commitment: Commitment<Ristretto255> = Commitment::new(r1, r2);
+        let commitment = Commitment::new(r1, r2);
 
         let zero_scalar = Ristretto255::scalar_from_bytes(&[0u8; 32]).unwrap();
         let response = Response::new(zero_scalar);
         let proof = Proof::new(commitment, response);
 
         let bytes = proof.to_bytes().unwrap();
-        let result = Proof::<Ristretto255>::from_bytes(&bytes);
+        let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
 }

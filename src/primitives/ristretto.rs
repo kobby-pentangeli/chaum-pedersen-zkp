@@ -1,3 +1,7 @@
+//! Ristretto255 group implementation for Chaum-Pedersen protocol.
+//!
+//! Provides fast, prime-order elliptic curve operations based on Curve25519.
+
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar as DalekScalar;
@@ -8,7 +12,7 @@ use sha2::{Digest, Sha512};
 use subtle::{Choice, ConstantTimeEq};
 use zeroize::Zeroize;
 
-use crate::{Error, Group, Result};
+use crate::{Error, Result};
 
 /// Number of bytes in a Ristretto255 scalar or compressed element (32 bytes).
 const RISTRETTO_BYTES: usize = 32;
@@ -23,6 +27,9 @@ const WIDE_REDUCTION_BYTES: usize = 64;
 const GENERATOR_H_DST: &[u8] = b"chaum-pedersen-zkp-v1.0.0-generator-h";
 
 /// Ristretto255 group implementation providing fast, prime-order elliptic curve operations.
+///
+/// This is the recommended group for the Chaum-Pedersen protocol, offering ~128-bit security
+/// with excellent performance characteristics.
 #[derive(Clone, Debug)]
 pub struct Ristretto255;
 
@@ -67,26 +74,24 @@ impl Element {
     }
 }
 
-impl Group for Ristretto255 {
-    type Scalar = Scalar;
-    type Element = Element;
-
-    fn name() -> &'static str {
-        "Ristretto255"
-    }
-
-    fn generator_g() -> Self::Element {
+impl Ristretto255 {
+    /// Returns the first generator `g` for Chaum-Pedersen protocol.
+    pub fn generator_g() -> Element {
         Element(RISTRETTO_BASEPOINT_TABLE.basepoint())
     }
 
-    fn generator_h() -> Self::Element {
+    /// Returns the second generator `h` for Chaum-Pedersen protocol.
+    ///
+    /// This generator is independent of `g` (no known discrete log relationship).
+    pub fn generator_h() -> Element {
         let mut hasher = Sha512::new();
         hasher.update(GENERATOR_H_DST);
         let hash = hasher.finalize();
         Element(RistrettoPoint::from_uniform_bytes(&hash.into()))
     }
 
-    fn scalar_from_bytes(bytes: &[u8]) -> Result<Self::Scalar> {
+    /// Deserializes a scalar from bytes.
+    pub fn scalar_from_bytes(bytes: &[u8]) -> Result<Scalar> {
         if bytes.len() != RISTRETTO_BYTES {
             return Err(Error::InvalidScalar(format!(
                 "Expected {} bytes, got {}",
@@ -106,11 +111,13 @@ impl Group for Ristretto255 {
         }
     }
 
-    fn scalar_to_bytes(scalar: &Self::Scalar) -> Vec<u8> {
+    /// Serializes a scalar to bytes.
+    pub fn scalar_to_bytes(scalar: &Scalar) -> Vec<u8> {
         scalar.0.to_bytes().to_vec()
     }
 
-    fn element_from_bytes(bytes: &[u8]) -> Result<Self::Element> {
+    /// Deserializes a group element from bytes.
+    pub fn element_from_bytes(bytes: &[u8]) -> Result<Element> {
         if bytes.len() != RISTRETTO_BYTES {
             return Err(Error::InvalidGroupElement(format!(
                 "Expected {} bytes, got {}",
@@ -130,33 +137,40 @@ impl Group for Ristretto255 {
         }
     }
 
-    fn element_to_bytes(element: &Self::Element) -> Vec<u8> {
+    /// Serializes a group element to bytes.
+    pub fn element_to_bytes(element: &Element) -> Vec<u8> {
         element.0.compress().to_bytes().to_vec()
     }
 
-    fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Self::Scalar {
+    /// Generates a random scalar using the provided RNG.
+    pub fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Scalar {
         let mut bytes = [0u8; WIDE_REDUCTION_BYTES];
         rng.fill_bytes(&mut bytes);
         Scalar(DalekScalar::from_bytes_mod_order_wide(&bytes))
     }
 
-    fn scalar_mul(element: &Self::Element, scalar: &Self::Scalar) -> Self::Element {
+    /// Performs scalar multiplication: `element * scalar`.
+    pub fn scalar_mul(element: &Element, scalar: &Scalar) -> Element {
         Element(element.0 * scalar.0)
     }
 
-    fn element_mul(a: &Self::Element, b: &Self::Element) -> Self::Element {
+    /// Multiplies two group elements: `a * b` (group operation is addition).
+    pub fn element_mul(a: &Element, b: &Element) -> Element {
         Element(a.0 + b.0)
     }
 
-    fn identity() -> Self::Element {
+    /// Returns the identity element of the group.
+    pub fn identity() -> Element {
         Element(RistrettoPoint::identity())
     }
 
-    fn is_identity(element: &Self::Element) -> bool {
+    /// Checks if an element is the identity.
+    pub fn is_identity(element: &Element) -> bool {
         element.0 == RistrettoPoint::identity()
     }
 
-    fn validate_element(element: &Self::Element) -> Result<()> {
+    /// Validates that an element is in the correct subgroup.
+    pub fn validate_element(element: &Element) -> Result<()> {
         if element.0.is_identity() {
             return Ok(());
         }
@@ -170,23 +184,30 @@ impl Group for Ristretto255 {
         }
     }
 
-    fn scalar_add(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {
+    /// Adds two scalars: `a + b`.
+    pub fn scalar_add(a: &Scalar, b: &Scalar) -> Scalar {
         Scalar(a.0 + b.0)
     }
 
-    fn scalar_sub(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {
+    /// Subtracts two scalars: `a - b`.
+    pub fn scalar_sub(a: &Scalar, b: &Scalar) -> Scalar {
         Scalar(a.0 - b.0)
     }
 
-    fn scalar_mul_scalar(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {
+    /// Multiplies two scalars: `a * b`.
+    pub fn scalar_mul_scalar(a: &Scalar, b: &Scalar) -> Scalar {
         Scalar(a.0 * b.0)
     }
 
-    fn scalar_negate(scalar: &Self::Scalar) -> Self::Scalar {
+    /// Negates a scalar: `-s`.
+    pub fn scalar_negate(scalar: &Scalar) -> Scalar {
         Scalar(-scalar.0)
     }
 
-    fn scalar_invert(scalar: &Self::Scalar) -> Option<Self::Scalar> {
+    /// Computes the multiplicative inverse of a scalar.
+    ///
+    /// Returns `None` if the scalar is zero.
+    pub fn scalar_invert(scalar: &Scalar) -> Option<Scalar> {
         if Self::scalar_is_zero(scalar) {
             None
         } else {
@@ -194,7 +215,8 @@ impl Group for Ristretto255 {
         }
     }
 
-    fn scalar_is_zero(scalar: &Self::Scalar) -> bool {
+    /// Checks if a scalar is zero.
+    pub fn scalar_is_zero(scalar: &Scalar) -> bool {
         scalar.0 == DalekScalar::ZERO
     }
 }
@@ -202,7 +224,7 @@ impl Group for Ristretto255 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::crypto::SecureRng;
+    use crate::SecureRng;
 
     #[test]
     fn generators() {

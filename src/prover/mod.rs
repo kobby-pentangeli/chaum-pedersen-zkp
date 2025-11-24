@@ -6,9 +6,10 @@
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::primitives::Transcript;
-use crate::primitives::gadgets::{Commitment, Parameters, Proof, Response, Statement, Witness};
-use crate::{Group, Result};
+use crate::{
+    Commitment, Parameters, Proof, Response, Result, Ristretto255, Scalar, Statement, Transcript,
+    Witness,
+};
 
 /// Prover for the Chaum-Pedersen zero-knowledge protocol.
 ///
@@ -21,13 +22,13 @@ use crate::{Group, Result};
 /// - Bind proofs to specific contexts using transcript methods to prevent replay attacks
 /// - Never reuse witness values across different protocol instances
 /// - Ensure the witness is zeroized after use (automatic with [`Witness`])
-pub struct Prover<G: Group> {
-    params: Parameters<G>,
-    witness: Witness<G>,
-    statement: Statement<G>,
+pub struct Prover {
+    params: Parameters,
+    witness: Witness,
+    statement: Statement,
 }
 
-impl<G: Group> Prover<G> {
+impl Prover {
     /// Creates a new prover with the given parameters and witness.
     ///
     /// The statement is automatically computed from the witness as `y1 = g^x` and `y2 = h^x`.
@@ -35,16 +36,16 @@ impl<G: Group> Prover<G> {
     /// # Examples
     ///
     /// ```rust
-    /// use chaum_pedersen::{Prover, Parameters, Witness, Ristretto255, Group, SecureRng};
+    /// use chaum_pedersen::{Prover, Parameters, Witness, Ristretto255, SecureRng};
     ///
-    /// let params = Parameters::<Ristretto255>::new();
+    /// let params = Parameters::new();
     /// let mut rng = SecureRng::new();
     /// let x = Ristretto255::random_scalar(&mut rng);
     /// let witness = Witness::new(x);
     ///
     /// let prover = Prover::new(params, witness);
     /// ```
-    pub fn new(params: Parameters<G>, witness: Witness<G>) -> Self {
+    pub fn new(params: Parameters, witness: Witness) -> Self {
         let statement = Statement::from_witness(&params, &witness);
         Self {
             params,
@@ -58,11 +59,7 @@ impl<G: Group> Prover<G> {
     /// # Security
     ///
     /// The caller must ensure the statement was correctly computed from the witness.
-    pub fn with_statement(
-        params: Parameters<G>,
-        witness: Witness<G>,
-        statement: Statement<G>,
-    ) -> Self {
+    pub fn with_statement(params: Parameters, witness: Witness, statement: Statement) -> Self {
         Self {
             params,
             witness,
@@ -71,14 +68,14 @@ impl<G: Group> Prover<G> {
     }
 
     /// Returns the public statement.
-    pub fn statement(&self) -> &Statement<G> {
+    pub fn statement(&self) -> &Statement {
         &self.statement
     }
 
     /// Generates a non-interactive zero-knowledge proof using Fiat-Shamir.
     ///
     /// This is the recommended method for most use cases.
-    pub fn prove<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Proof<G>> {
+    pub fn prove<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Proof> {
         let mut transcript = Transcript::new();
         self.prove_with_transcript(rng, &mut transcript)
     }
@@ -90,24 +87,23 @@ impl<G: Group> Prover<G> {
         &self,
         rng: &mut R,
         transcript: &mut Transcript,
-    ) -> Result<Proof<G>> {
+    ) -> Result<Proof> {
         let (commitment, nonce) = self.commit(rng);
 
-        transcript.append_group_name(G::name());
         transcript.append_parameters(
-            &G::element_to_bytes(self.params.generator_g()),
-            &G::element_to_bytes(self.params.generator_h()),
+            &Ristretto255::element_to_bytes(self.params.generator_g()),
+            &Ristretto255::element_to_bytes(self.params.generator_h()),
         );
         transcript.append_statement(
-            &G::element_to_bytes(self.statement.y1()),
-            &G::element_to_bytes(self.statement.y2()),
+            &Ristretto255::element_to_bytes(self.statement.y1()),
+            &Ristretto255::element_to_bytes(self.statement.y2()),
         );
         transcript.append_commitment(
-            &G::element_to_bytes(commitment.r1()),
-            &G::element_to_bytes(commitment.r2()),
+            &Ristretto255::element_to_bytes(commitment.r1()),
+            &Ristretto255::element_to_bytes(commitment.r2()),
         );
 
-        let challenge = transcript.challenge_scalar::<G>();
+        let challenge = transcript.challenge_scalar();
         let response = self.respond(&nonce, &challenge);
 
         Ok(Proof::new(commitment, response))
@@ -116,10 +112,10 @@ impl<G: Group> Prover<G> {
     /// Interactive protocol: generates commitment (first message).
     ///
     /// Returns the commitment and the secret nonce (must be kept secret).
-    pub fn commit<R: CryptoRngCore>(&self, rng: &mut R) -> (Commitment<G>, Nonce<G>) {
-        let k = G::random_scalar(rng);
-        let r1 = G::scalar_mul(self.params.generator_g(), &k);
-        let r2 = G::scalar_mul(self.params.generator_h(), &k);
+    pub fn commit<R: CryptoRngCore>(&self, rng: &mut R) -> (Commitment, Nonce) {
+        let k = Ristretto255::random_scalar(rng);
+        let r1 = Ristretto255::scalar_mul(self.params.generator_g(), &k);
+        let r2 = Ristretto255::scalar_mul(self.params.generator_h(), &k);
 
         (Commitment::new(r1, r2), Nonce::new(k))
     }
@@ -127,9 +123,9 @@ impl<G: Group> Prover<G> {
     /// Interactive protocol: generates response (third message).
     ///
     /// Takes the secret nonce and the challenge to produce the response.
-    pub fn respond(&self, nonce: &Nonce<G>, challenge: &G::Scalar) -> Response<G> {
-        let cx = G::scalar_mul_scalar(challenge, self.witness.secret());
-        let s = G::scalar_add(nonce.k(), &cx);
+    pub fn respond(&self, nonce: &Nonce, challenge: &Scalar) -> Response {
+        let cx = Ristretto255::scalar_mul_scalar(challenge, self.witness.secret());
+        let s = Ristretto255::scalar_add(nonce.k(), &cx);
 
         Response::new(s)
     }
@@ -139,18 +135,18 @@ impl<G: Group> Prover<G> {
 ///
 /// Automatically zeroized when dropped.
 #[derive(Clone, Debug, Zeroize, ZeroizeOnDrop)]
-pub struct Nonce<G: Group> {
-    k: G::Scalar,
+pub struct Nonce {
+    k: Scalar,
 }
 
-impl<G: Group> Nonce<G> {
+impl Nonce {
     /// Creates a new nonce from a scalar.
-    pub fn new(k: G::Scalar) -> Self {
+    pub fn new(k: Scalar) -> Self {
         Self { k }
     }
 
     /// Returns a reference to the nonce scalar.
-    pub fn k(&self) -> &G::Scalar {
+    pub fn k(&self) -> &Scalar {
         &self.k
     }
 }
@@ -158,12 +154,12 @@ impl<G: Group> Nonce<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Ristretto255, SecureRng};
+    use crate::SecureRng;
 
     #[test]
     fn prover_creation() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 
@@ -174,7 +170,7 @@ mod tests {
     #[test]
     fn prove_generates_valid_proof() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 
@@ -187,7 +183,7 @@ mod tests {
     #[test]
     fn interactive_protocol() {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);
 

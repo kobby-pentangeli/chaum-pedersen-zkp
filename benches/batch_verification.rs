@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use chaum_pedersen::{
-    BatchVerifier, Group, Parameters, Prover, Ristretto255, SecureRng, Transcript, Verifier,
+    BatchVerifier, Parameters, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier,
     Witness,
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -15,7 +15,7 @@ fn bench_batch_verification(c: &mut Criterion) {
             batch_size,
             |b, &size| {
                 let mut rng = SecureRng::new();
-                let params = Parameters::<Ristretto255>::new();
+                let params = Parameters::new();
 
                 let mut batch_verifier = BatchVerifier::new();
                 for _ in 0..size {
@@ -41,7 +41,7 @@ fn bench_batch_verification(c: &mut Criterion) {
             batch_size,
             |b, &size| {
                 let mut rng = SecureRng::new();
-                let params = Parameters::<Ristretto255>::new();
+                let params = Parameters::new();
 
                 let mut proofs = Vec::new();
                 for _ in 0..size {
@@ -75,7 +75,7 @@ fn bench_batch_verification_with_transcript(c: &mut Criterion) {
             batch_size,
             |b, &size| {
                 let mut rng = SecureRng::new();
-                let params = Parameters::<Ristretto255>::new();
+                let params = Parameters::new();
 
                 let mut batch_verifier = BatchVerifier::new();
                 for i in 0..size {
@@ -118,7 +118,7 @@ fn bench_batch_verification_mixed_validity(c: &mut Criterion) {
     let batch_size = 50;
     group.bench_function("mixed_valid_invalid", |b| {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
 
         let mut batch_verifier = BatchVerifier::new();
         for i in 0..batch_size {
@@ -132,7 +132,7 @@ fn bench_batch_verification_mixed_validity(c: &mut Criterion) {
             } else {
                 let x2 = Ristretto255::random_scalar(&mut rng);
                 let wrong_witness = Witness::new(x2);
-                chaum_pedersen::Statement::from_witness(&params, &wrong_witness)
+                Statement::from_witness(&params, &wrong_witness)
             };
 
             batch_verifier
@@ -154,7 +154,7 @@ fn bench_batch_add_proof(c: &mut Criterion) {
 
     group.bench_function("add_proof_to_batch", |b| {
         let mut rng = SecureRng::new();
-        let params = Parameters::<Ristretto255>::new();
+        let params = Parameters::new();
 
         let x = Ristretto255::random_scalar(&mut rng);
         let witness = Witness::new(x);

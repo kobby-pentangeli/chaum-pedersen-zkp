@@ -7,13 +7,13 @@ use chaum_pedersen::verifier::config::RateLimiter;
 use chaum_pedersen::verifier::service::AuthServiceImpl;
 use chaum_pedersen::verifier::state::ServerState;
 use chaum_pedersen::{
-    Group, Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Witness,
+    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Witness,
 };
 use tonic::Request;
 use tonic::transport::Server;
 
 async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
-    let state = ServerState::<Ristretto255>::new();
+    let state = ServerState::new();
     let rate_limiter = RateLimiter::new(1000, 100);
     let service = AuthServiceImpl::new(state, rate_limiter);
 
@@ -42,7 +42,7 @@ async fn full_authentication_flow() {
         .await
         .expect("Failed to connect to server");
 
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -55,7 +55,6 @@ async fn full_authentication_flow() {
         user_id: "alice".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     let register_response = client
@@ -116,7 +115,7 @@ async fn registration_prevents_duplicates() {
         .await
         .expect("Failed to connect to server");
 
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -129,7 +128,6 @@ async fn registration_prevents_duplicates() {
         user_id: "bob".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     client
@@ -141,7 +139,6 @@ async fn registration_prevents_duplicates() {
         user_id: "bob".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     let result = client.register(register_request2).await;
@@ -157,7 +154,7 @@ async fn challenge_single_use() {
         .await
         .expect("Failed to connect to server");
 
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -170,7 +167,6 @@ async fn challenge_single_use() {
         user_id: "charlie".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     client.register(register_request).await.unwrap();
@@ -221,7 +217,7 @@ async fn wrong_password_fails_verification() {
         .await
         .expect("Failed to connect to server");
 
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x_correct = Ristretto255::random_scalar(&mut rng);
     let witness_correct = Witness::new(x_correct);
@@ -234,7 +230,6 @@ async fn wrong_password_fails_verification() {
         user_id: "dave".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     client.register(register_request).await.unwrap();
@@ -280,7 +275,7 @@ async fn max_challenges_per_user() {
         .await
         .expect("Failed to connect to server");
 
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -293,7 +288,6 @@ async fn max_challenges_per_user() {
         user_id: "eve".to_string(),
         y1: y1_bytes.to_vec(),
         y2: y2_bytes.to_vec(),
-        group_name: "Ristretto255".to_string(),
     });
 
     client.register(register_request).await.unwrap();

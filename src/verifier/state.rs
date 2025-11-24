@@ -4,27 +4,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::RwLock;
 
-use crate::{Error, Group, Result, Ristretto255, Statement};
+use crate::{Error, Result, Statement};
 
 const CHALLENGE_EXPIRY_SECONDS: u64 = 300;
 const MAX_CHALLENGES_PER_USER: usize = 3;
 const SESSION_EXPIRY_SECONDS: u64 = 3600; // 1 hour
 const MAX_SESSIONS_PER_USER: usize = 5;
 
-// Global limits to prevent DoS attacks
 const MAX_TOTAL_USERS: usize = 10_000;
 const MAX_TOTAL_CHALLENGES: usize = 50_000;
 const MAX_TOTAL_SESSIONS: usize = 100_000;
 
 /// Registered user data.
 #[derive(Clone, Debug)]
-pub struct UserData<G: Group> {
+pub struct UserData {
     /// Unique identifier for the user.
     pub user_id: String,
     /// User's public statement (y1, y2).
-    pub statement: Statement<G>,
-    /// Cryptographic group name.
-    pub group_name: String,
+    pub statement: Statement,
     /// Unix timestamp of registration.
     pub registered_at: u64,
 }
@@ -101,9 +98,6 @@ impl ChallengeData {
     }
 
     /// Checks if the challenge has expired.
-    ///
-    /// Returns true if either the expiry timestamp has been reached OR
-    /// if the challenge age exceeds twice the expiry duration (to handle clock skew).
     pub fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -118,18 +112,15 @@ impl ChallengeData {
 }
 
 /// Server state managing users, active challenges, and sessions.
-///
-/// Provides thread-safe access to user registry, challenge tracking, and session management
-/// with automatic expiry and rate limiting.
-pub struct ServerState<G: Group> {
-    users: Arc<RwLock<HashMap<String, UserData<G>>>>,
+pub struct ServerState {
+    users: Arc<RwLock<HashMap<String, UserData>>>,
     challenges: Arc<RwLock<HashMap<Vec<u8>, ChallengeData>>>,
     user_challenges: Arc<RwLock<HashMap<String, Vec<Vec<u8>>>>>,
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
     user_sessions: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
-impl<G: Group> ServerState<G> {
+impl ServerState {
     /// Creates new server state with empty registries.
     pub fn new() -> Self {
         Self {
@@ -142,12 +133,9 @@ impl<G: Group> ServerState<G> {
     }
 
     /// Registers a new user with the provided data.
-    ///
-    /// Returns an error if the user ID is already registered or global user limit is reached.
-    pub async fn register_user(&self, user_data: UserData<G>) -> Result<()> {
+    pub async fn register_user(&self, user_data: UserData) -> Result<()> {
         let mut users = self.users.write().await;
 
-        // Check global user limit
         if users.len() >= MAX_TOTAL_USERS {
             return Err(Error::InvalidParams(format!(
                 "Server has reached maximum user capacity ({})",
@@ -167,22 +155,17 @@ impl<G: Group> ServerState<G> {
     }
 
     /// Retrieves user data by user ID.
-    pub async fn get_user(&self, user_id: &str) -> Option<UserData<G>> {
+    pub async fn get_user(&self, user_id: &str) -> Option<UserData> {
         let users = self.users.read().await;
         users.get(user_id).cloned()
     }
 
     /// Creates a new challenge for the specified user.
-    ///
-    /// Returns the challenge expiry timestamp in seconds since UNIX epoch.
-    /// Returns an error if the user is not found, has too many active challenges,
-    /// or the global challenge limit is reached.
     pub async fn create_challenge(&self, user_id: &str, challenge_id: Vec<u8>) -> Result<u64> {
         let users = self.users.read().await;
         let mut user_challenges = self.user_challenges.write().await;
         let mut all_challenges = self.challenges.write().await;
 
-        // Check global challenge limit
         if all_challenges.len() >= MAX_TOTAL_CHALLENGES {
             return Err(Error::InvalidParams(format!(
                 "Server has reached maximum challenge capacity ({})",
@@ -218,24 +201,16 @@ impl<G: Group> ServerState<G> {
     }
 
     /// Consumes a challenge, removing it from active challenges.
-    ///
-    /// Returns an error if the challenge is not found or has expired.
-    ///
-    /// This method is atomic - it checks expiry and removes the challenge
-    /// in a single write lock to prevent race conditions.
     pub async fn consume_challenge(&self, challenge_id: &[u8]) -> Result<ChallengeData> {
         let mut challenges = self.challenges.write().await;
         let mut user_challenges = self.user_challenges.write().await;
 
-        // Check if challenge exists first (without removing)
         let challenge_data = challenges
             .get(challenge_id)
             .ok_or_else(|| Error::InvalidParams("Invalid or expired challenge".to_string()))?
             .clone();
 
-        // Check expiry before removing (atomic check-and-remove)
         if challenge_data.is_expired() {
-            // Remove expired challenge during this check
             challenges.remove(challenge_id);
             if let Some(user_challs) = user_challenges.get_mut(&challenge_data.user_id) {
                 user_challs.retain(|id| id != challenge_id);
@@ -245,7 +220,6 @@ impl<G: Group> ServerState<G> {
             ));
         }
 
-        // Only remove if valid and not expired
         challenges.remove(challenge_id);
         if let Some(user_challs) = user_challenges.get_mut(&challenge_data.user_id) {
             user_challs.retain(|id| id != challenge_id);
@@ -259,11 +233,11 @@ impl<G: Group> ServerState<G> {
         let mut challenges = self.challenges.write().await;
         let mut user_challenges = self.user_challenges.write().await;
 
-        let expired: Vec<Vec<u8>> = challenges
+        let expired = challenges
             .iter()
             .filter(|(_, data)| data.is_expired())
             .map(|(id, _)| id.clone())
-            .collect();
+            .collect::<Vec<Vec<u8>>>();
 
         for challenge_id in expired {
             if let Some(data) = challenges.remove(&challenge_id) {
@@ -275,14 +249,10 @@ impl<G: Group> ServerState<G> {
     }
 
     /// Creates a new session for the specified user.
-    ///
-    /// Returns an error if the user has reached the maximum number of sessions
-    /// or if the global session limit is reached.
     pub async fn create_session(&self, token: String, user_id: String) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
 
-        // Check global session limit
         if sessions.len() >= MAX_TOTAL_SESSIONS {
             return Err(Error::InvalidParams(format!(
                 "Server has reached maximum session capacity ({})",
@@ -290,7 +260,6 @@ impl<G: Group> ServerState<G> {
             )));
         }
 
-        // Check per-user session limit
         let user_session_tokens = user_sessions.entry(user_id.clone()).or_default();
         if user_session_tokens.len() >= MAX_SESSIONS_PER_USER {
             return Err(Error::InvalidParams(format!(
@@ -307,8 +276,6 @@ impl<G: Group> ServerState<G> {
     }
 
     /// Validates a session token.
-    ///
-    /// Returns the user ID if the session is valid and not expired.
     pub async fn validate_session(&self, token: &str) -> Result<String> {
         let sessions = self.sessions.read().await;
 
@@ -344,11 +311,11 @@ impl<G: Group> ServerState<G> {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
 
-        let expired: Vec<String> = sessions
+        let expired = sessions
             .iter()
             .filter(|(_, data)| data.is_expired())
             .map(|(token, _)| token.clone())
-            .collect();
+            .collect::<Vec<String>>();
 
         for token in expired {
             if let Some(data) = sessions.remove(&token) {
@@ -360,13 +327,13 @@ impl<G: Group> ServerState<G> {
     }
 }
 
-impl<G: Group> Default for ServerState<G> {
+impl Default for ServerState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<G: Group> Clone for ServerState<G> {
+impl Clone for ServerState {
     fn clone(&self) -> Self {
         Self {
             users: Arc::clone(&self.users),
@@ -377,6 +344,3 @@ impl<G: Group> Clone for ServerState<G> {
         }
     }
 }
-
-/// Type alias for server state using Ristretto255 group.
-pub type DefaultServerState = ServerState<Ristretto255>;

@@ -6,11 +6,11 @@ use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
 };
 use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerState};
-use chaum_pedersen::{Group, Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness};
+use chaum_pedersen::{Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness};
 use tonic::transport::Server;
 
 async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
-    let state = ServerState::<Ristretto255>::new();
+    let state = ServerState::new();
     let rate_limiter = RateLimiter::new(10000, 10000);
     let service = AuthServiceImpl::new(state, rate_limiter);
 
@@ -33,7 +33,7 @@ async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
 
 fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let mut rng = SecureRng::new();
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
 
     let password = format!("password-{}", user_id);
     let x = derive_scalar_from_password(&password, user_id);
@@ -55,7 +55,7 @@ fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<
     (y1, y2, proof_bytes)
 }
 
-fn derive_scalar_from_password(password: &str, user_id: &str) -> <Ristretto255 as Group>::Scalar {
+fn derive_scalar_from_password(password: &str, user_id: &str) -> chaum_pedersen::Scalar {
     use sha2::{Digest, Sha256, Sha512};
 
     let salt_input = format!("chaum-pedersen-v1.0.0-{}", user_id);
@@ -101,7 +101,6 @@ async fn batch_verify_multiple_valid_proofs() {
             user_id: user_id.clone(),
             y1,
             y2,
-            group_name: "Ristretto255".to_string(),
         };
         let reg_resp = client.register(reg_req).await.unwrap();
         assert!(reg_resp.into_inner().success);
@@ -158,7 +157,6 @@ async fn batch_verify_mixed_valid_invalid_proofs() {
             user_id: user_id.clone(),
             y1,
             y2,
-            group_name: "Ristretto255".to_string(),
         };
         client.register(reg_req).await.unwrap();
 
@@ -263,7 +261,6 @@ async fn batch_verify_single_proof() {
         user_id: user_id.clone(),
         y1,
         y2,
-        group_name: "Ristretto255".to_string(),
     };
     client.register(reg_req).await.unwrap();
 
@@ -312,7 +309,6 @@ async fn batch_register_multiple_users() {
         user_ids: user_ids.clone(),
         y1_values,
         y2_values,
-        group_name: "Ristretto255".to_string(),
     };
 
     let batch_resp = client.register_batch(batch_req).await.unwrap();
@@ -340,7 +336,6 @@ async fn batch_register_duplicate_users() {
         user_id: user_id.clone(),
         y1: y1.clone(),
         y2: y2.clone(),
-        group_name: "Ristretto255".to_string(),
     };
     client.register(reg_req).await.unwrap();
 
@@ -348,7 +343,6 @@ async fn batch_register_duplicate_users() {
         user_ids: vec![user_id.clone(), user_id.clone()],
         y1_values: vec![y1.clone(), y1],
         y2_values: vec![y2.clone(), y2],
-        group_name: "Ristretto255".to_string(),
     };
 
     let batch_resp = client.register_batch(batch_req).await.unwrap();
@@ -374,7 +368,6 @@ async fn batch_register_empty_batch() {
         user_ids: vec![],
         y1_values: vec![],
         y2_values: vec![],
-        group_name: "Ristretto255".to_string(),
     };
 
     let result = client.register_batch(batch_req).await;
@@ -390,7 +383,6 @@ async fn batch_register_mismatched_arrays() {
         user_ids: vec!["user1".to_string()],
         y1_values: vec![vec![1u8; 32]],
         y2_values: vec![],
-        group_name: "Ristretto255".to_string(),
     };
 
     let result = client.register_batch(batch_req).await;
@@ -415,7 +407,6 @@ async fn batch_verify_large_batch() {
             user_id: user_id.clone(),
             y1,
             y2,
-            group_name: "Ristretto255".to_string(),
         };
         client.register(reg_req).await.unwrap();
 

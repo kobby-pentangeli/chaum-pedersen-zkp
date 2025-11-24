@@ -189,9 +189,12 @@ The batch is valid if and only if both combined equations hold.
 
 ### Parameter Selection
 
+For MODP groups:
+
 - The prime `p` should be at least 2048 bits for security (3072 bits recommended)
 - The order `q` should be at least 256 bits
-- Use standardized groups (e.g., RFC 5114) or generate parameters provably
+
+This implementation uses **Ristretto255**, a prime-order elliptic curve group providing ~128-bit security with excellent performance characteristics.
 
 ### Timing Attacks
 
@@ -251,7 +254,7 @@ The verification equations can be computed efficiently using:
 
 1. **Original Paper**: Chaum, D., & Pedersen, T. P. (1992). "Wallet Databases with Observers." In *Advances in Cryptology -- CRYPTO '92* (pp. 89-105). Springer. [DOI: 10.1007/3-540-48071-4_7](https://doi.org/10.1007/3-540-48071-4_7)
 
-2. **RFC 5114**: "Additional Diffie-Hellman Groups for Use with IETF Standards" - Provides standardized group parameters. [View RFC 5114](https://www.rfc-editor.org/rfc/rfc5114)
+2. **Ristretto255 Specification**: Modern prime-order elliptic curve group. [View Specification](https://ristretto.group/)
 
 3. **Schnorr, C. P.** (1991). "Efficient Signature Generation by Smart Cards." *Journal of Cryptology*, 4(3), 161-174.
 

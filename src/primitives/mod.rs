@@ -1,21 +1,24 @@
 //! Core cryptographic primitives for the Chaum-Pedersen protocol.
 //!
-//! This module contains all fundamental mathematical and cryptographic building blocks:
-//! - **crypto**: Field operations, group trait, and secure randomness
-//! - **groups**: Concrete group implementations (Ristretto255, P-256, RFC5114)
-//! - **gadgets**: Protocol parameters, statements, witnesses, and proofs
-//! - **transcript**: Fiat-Shamir transform for non-interactive proofs
+//! This module contains:
+//! - [`ristretto`]: Ristretto255 group implementation
+//! - [`rng`]: Cryptographically secure random number generator
+//! - [`gadgets`]: Protocol data structures (parameters, witness, statement, proof)
+//! - [`transcript`]: Fiat-Shamir transcript for non-interactive proofs
 
-/// Cryptographic primitives and traits.
-pub mod crypto;
-/// Protocol gadgets (parameters, statements, witnesses, proofs).
+/// Ristretto255 group implementation.
+pub mod ristretto;
+
+/// Cryptographically secure random number generator.
+pub mod rng;
+
+/// Protocol gadgets (parameters, witness, statement, proof).
 pub mod gadgets;
-/// Group implementations for Chaum-Pedersen protocol.
-pub mod groups;
-/// Transcript for Fiat-Shamir transform.
+
+/// Fiat-Shamir transcript for non-interactive proofs.
 pub mod transcript;
 
-pub use crypto::{Group, SecureRng};
-pub use gadgets::{Parameters, Proof, Statement, Witness};
-pub use groups::{P256, Rfc5114, Ristretto255};
+pub use gadgets::{Commitment, Parameters, Proof, Response, Statement, Witness};
+pub use ristretto::{Element, Ristretto255, Scalar};
+pub use rng::SecureRng;
 pub use transcript::Transcript;

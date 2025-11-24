@@ -8,20 +8,21 @@
 //!
 //! ## Features
 //!
-//! - **Multiple group implementations**: RFC 5114 MODP and Ristretto255
+//! - **Ristretto255 implementation**: Fast, prime-order elliptic curve group
 //! - **Constant-time operations**: Protection against timing attacks
 //! - **Memory zeroization**: Automatic clearing of sensitive data
 //! - **Fiat-Shamir transform**: Non-interactive proofs with transcript support
 //! - **gRPC support**: Optional client-server authentication system
+//! - **Batch verification**: Efficient verification of multiple proofs
 //!
 //! ## Quick Start
 //!
 //! ```rust
 //! use chaum_pedersen::{
-//!     Ristretto255, Group, SecureRng, Parameters, Witness, Statement, Prover, Verifier, Transcript
+//!     Ristretto255, SecureRng, Parameters, Witness, Statement, Prover, Verifier, Transcript
 //! };
 //!
-//! let params = Parameters::<Ristretto255>::new();
+//! let params = Parameters::new();
 //! let mut rng = SecureRng::new();
 //!
 //! // Prover: Generate secret and create statement
@@ -43,7 +44,6 @@
 //!
 //! ## Security Considerations
 //!
-//! - **Group selection**: Use Ristretto255 for best security and performance
 //! - **Randomness**: Use `SecureRng` for all random scalar generation
 //! - **Transcript binding**: Use unique context data to prevent replay attacks
 //! - **Single-use challenges**: Never reuse challenges or proofs across sessions
@@ -51,13 +51,10 @@
 //!
 //! ## Performance
 //!
-//! Benchmark results on M-series Mac (Ristretto255):
+//! Benchmark results on M-series Mac:
 //! - Proof generation: ~144 microseconds
 //! - Proof verification: ~159 microseconds
 //! - Serialization/deserialization: ~7 microseconds
-//!
-//! RFC5114 is approximately 100x slower than Ristretto255 and is not recommended
-//! for new applications.
 //!
 //! ## Feature Flags
 //!
@@ -69,7 +66,7 @@
 
 /// Error types for the library.
 pub mod error;
-/// Core cryptographic primitives (crypto, groups, gadgets, transcripts).
+/// Core cryptographic primitives (ristretto, gadgets, transcripts).
 pub mod primitives;
 /// Prover (client) implementation.
 pub mod prover;
@@ -85,8 +82,8 @@ pub mod proto {
 
 pub use error::Error;
 pub use primitives::{
-    Group, P256, Parameters, Proof, Rfc5114, Ristretto255, SecureRng, Statement, Transcript,
-    Witness,
+    Commitment, Element, Parameters, Proof, Response, Ristretto255, Scalar, SecureRng, Statement,
+    Transcript, Witness,
 };
 pub use prover::Prover;
 pub use verifier::{BatchVerifier, Verifier};

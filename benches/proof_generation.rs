@@ -1,13 +1,12 @@
 use std::hint::black_box;
 
 use chaum_pedersen::{
-    Group, Parameters, Prover, Rfc5114, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-    Witness,
+    Parameters, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_ristretto_proof_generation(c: &mut Criterion) {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -23,7 +22,7 @@ fn bench_ristretto_proof_generation(c: &mut Criterion) {
 }
 
 fn bench_ristretto_proof_verification(c: &mut Criterion) {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -45,49 +44,8 @@ fn bench_ristretto_proof_verification(c: &mut Criterion) {
     });
 }
 
-#[allow(dead_code)]
-fn bench_rfc5114_proof_generation(c: &mut Criterion) {
-    let params = Parameters::<Rfc5114>::new();
-    let mut rng = SecureRng::new();
-    let x = Rfc5114::random_scalar(&mut rng);
-    let witness = Witness::new(x);
-
-    c.bench_function("rfc5114_proof_generation", |b| {
-        b.iter(|| {
-            let mut transcript = Transcript::new();
-            Prover::new(params.clone(), witness.clone())
-                .prove_with_transcript(black_box(&mut rng), black_box(&mut transcript))
-                .unwrap()
-        })
-    });
-}
-
-#[allow(dead_code)]
-fn bench_rfc5114_proof_verification(c: &mut Criterion) {
-    let params = Parameters::<Rfc5114>::new();
-    let mut rng = SecureRng::new();
-    let x = Rfc5114::random_scalar(&mut rng);
-    let witness = Witness::new(x);
-    let statement = Statement::from_witness(&params, &witness);
-
-    let mut transcript = Transcript::new();
-    let proof = Prover::new(params.clone(), witness)
-        .prove_with_transcript(&mut rng, &mut transcript)
-        .unwrap();
-
-    c.bench_function("rfc5114_proof_verification", |b| {
-        b.iter(|| {
-            let mut verify_transcript = Transcript::new();
-            let verifier = Verifier::new(params.clone(), statement.clone());
-            verifier
-                .verify_with_transcript(black_box(&proof), black_box(&mut verify_transcript))
-                .unwrap()
-        })
-    });
-}
-
 fn bench_statement_serialization(c: &mut Criterion) {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -103,7 +61,7 @@ fn bench_statement_serialization(c: &mut Criterion) {
 }
 
 fn bench_statement_deserialization(c: &mut Criterion) {
-    let params = Parameters::<Ristretto255>::new();
+    let params = Parameters::new();
     let mut rng = SecureRng::new();
     let x = Ristretto255::random_scalar(&mut rng);
     let witness = Witness::new(x);
@@ -116,7 +74,7 @@ fn bench_statement_deserialization(c: &mut Criterion) {
         b.iter(|| {
             let y1 = Ristretto255::element_from_bytes(black_box(&y1_bytes)).unwrap();
             let y2 = Ristretto255::element_from_bytes(black_box(&y2_bytes)).unwrap();
-            Statement::<Ristretto255>::new(y1, y2)
+            Statement::new(y1, y2)
         })
     });
 }

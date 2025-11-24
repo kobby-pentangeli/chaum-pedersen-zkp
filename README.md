@@ -14,26 +14,27 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 **Key Features:**
 
 - **Zero-knowledge authentication**: Server never sees passwords
-- **High performance**: 0.14ms proof generation, 0.16ms verification (Ristretto255)
+- **High performance**: 0.14ms proof generation, 0.16ms verification
 - **Batch verification**: 30-50% faster for verifying multiple proofs simultaneously
 - **Constant-time operations**: Protection against timing attacks
 - **Memory zeroization**: Automatic clearing of sensitive data
 - **gRPC API**: Server with TLS, rate limiting, metrics
-- **Multiple groups**: Ristretto255 (recommended),  P-256, and RFC 5114 MODP
+- **Ristretto255**: Fast, prime-order elliptic curve with ~128-bit security
 
 ## Architecture
 
 ```txt
 src/
 ├── primitives/        # Core cryptographic primitives
-│   ├── crypto/        # Field operations, group trait, secure RNG
-│   ├── groups/        # Ristretto255, P-256, RFC5114 implementations
+│   ├── ristretto.rs   # Ristretto255 group implementation
+│   ├── rng.rs         # Secure random number generator
 │   ├── gadgets.rs     # Parameters, Statement, Witness, Proof
 │   └── transcript.rs  # Fiat-Shamir transform
 ├── prover/            # Client-side proof generation
 ├── verifier/          # Server-side proof verification
 │   ├── config.rs      # Configuration with .env support
 │   ├── service.rs     # gRPC service implementation
+│   ├── batch.rs       # Batch verification
 │   └── state.rs       # Server state management
 └── bin/
     ├── client.rs      # CLI client (prover)
@@ -236,12 +237,12 @@ cargo +nightly fuzz run fuzz_proof_deserialization -- -jobs=4
 
 ```rust
 use chaum_pedersen::{
-    Ristretto255, Group, SecureRng, Parameters, Witness, Statement,
+    Ristretto255, SecureRng, Parameters, Witness, Statement,
     Prover, Verifier, Transcript
 };
 
 // Setup parameters
-let params = Parameters::<Ristretto255>::new();
+let params = Parameters::new();
 let mut rng = SecureRng::new();
 
 // Prover: Generate secret and create statement
@@ -264,6 +265,8 @@ assert!(verifier.verify_with_transcript(&proof, &mut verify_transcript).is_ok())
 ### Interactive Protocol
 
 ```rust
+use chaum_pedersen::Proof;
+
 // Prover: Commitment phase
 let prover = Prover::new(params.clone(), witness);
 let (commitment, nonce) = prover.commit(&mut rng);
@@ -288,7 +291,7 @@ Batch verification provides 30-50% better performance when verifying multiple pr
 use chaum_pedersen::BatchVerifier;
 
 // Create batch verifier
-let mut batch_verifier = BatchVerifier::<Ristretto255>::new();
+let mut batch_verifier = BatchVerifier::new();
 
 // Add multiple proofs to batch
 for i in 0..10 {
@@ -317,35 +320,6 @@ let results = batch_verifier.verify(&mut rng).unwrap();
 for (i, result) in results.iter().enumerate() {
     assert!(result.is_ok(), "Proof {} should be valid", i);
 }
-```
-
-### Group Selection
-
-**Ristretto255 (Recommended):**
-
-- 100x faster than RFC5114
-- Smaller proofs (~109 bytes)
-- Prime-order group
-- Security: ~128-bit
-
-**RFC5114 (Legacy):**
-
-- NIST-standardized (deprecated)
-- Slower performance
-- Larger proofs (~512 bytes)
-- Security: ~112-bit
-
-```rust
-use chaum_pedersen::{Rfc5114, P256, Ristretto255};
-
-// Use Ristretto255 (recommended)
-let params = Parameters::<Ristretto255>::new();
-
-// Or RFC5114 for legacy compatibility
-let params = Parameters::<Rfc5114>::new();
-
-// Or P-256 (experimental)
-let params = Parameters::<P256>::new();
 ```
 
 ## Feature Flags
@@ -377,8 +351,6 @@ cargo build --all-features
 ## References
 
 - [Original Chaum-Pedersen Paper](https://link.springer.com/content/pdf/10.1007/3-540-48071-4_7.pdf)
-- [RFC 5114 - MODP Groups](https://www.rfc-editor.org/rfc/rfc5114#section-2)
-- [RFC 8247 - Deprecation of RFC 5114](https://www.rfc-editor.org/rfc/rfc8247.html)
 - [Ristretto255 Specification](https://ristretto.group/)
 
 ## Contributing
@@ -404,7 +376,6 @@ at your option.
 Built with:
 
 - [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) - Ristretto255 group operations
-- [crypto-bigint](https://github.com/RustCrypto/crypto-bigint) - Constant-time big integers
 - [merlin](https://github.com/dalek-cryptography/merlin) - Fiat-Shamir transcripts
 - [tonic](https://github.com/hyperium/tonic) - gRPC framework
 - [argon2](https://github.com/RustCrypto/password-hashes) - Password hashing

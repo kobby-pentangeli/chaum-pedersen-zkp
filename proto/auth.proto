@@ -14,7 +14,6 @@ message RegistrationRequest {
   string user_id = 1;
   bytes y1 = 2;
   bytes y2 = 3;
-  string group_name = 4;
 }
 
 message RegistrationResponse {
@@ -63,7 +62,6 @@ message BatchRegistrationRequest {
   repeated string user_ids = 1;
   repeated bytes y1_values = 2;
   repeated bytes y2_values = 3;
-  string group_name = 4;
 }
 
 message BatchRegistrationResponse {

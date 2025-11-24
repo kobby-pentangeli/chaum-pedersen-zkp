@@ -1,3 +1,5 @@
+//! Cryptographically secure random number generator.
+
 use rand_core::{CryptoRng, OsRng, RngCore};
 
 /// Cryptographically secure random number generator.
