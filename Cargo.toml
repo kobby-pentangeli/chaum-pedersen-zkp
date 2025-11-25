@@ -36,7 +36,6 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 getrandom = "0.2"
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
-postcard = { version = "1.0", features = ["alloc"] }
 thiserror = "2.0"
 
 tonic = { version = "0.12", features = ["tls"], optional = true }
@@ -61,7 +60,7 @@ clap = { version = "4.5", features = ["derive", "env"], optional = true }
 argon2 = { version = "0.5", optional = true }
 figment = { version = "0.10", features = ["toml", "env"], optional = true }
 dotenvy = { version = "0.15", optional = true }
-crossterm = { version = "0.29.0", optional = true }
+crossterm = { version = "0.29", optional = true }
 
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = [
@@ -76,11 +75,8 @@ tonic-build = { version = "0.12", optional = true }
 prost-build = { version = "0.13", optional = true }
 
 [dev-dependencies]
-proptest = "1.4"
 criterion = { version = "0.7", features = ["html_reports"] }
-tokio-test = "0.4"
 tokio-stream = { version = "0.1", features = ["net"] }
-hex = "0.4"
 
 [features]
 default = []
