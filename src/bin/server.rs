@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tokio::{signal, time};
 use tonic::transport::Server;
 use tonic_health::server::{HealthReporter, health_reporter};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -151,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     display_banner();
 
     let config = ServerConfig::from_env().unwrap_or_else(|e| {
-        error!("Failed to load configuration: {e}");
+        warn!("Failed to load server configuration from `.env`: {e}");
         info!("Using default configuration");
         ServerConfig::default()
     });
@@ -262,12 +262,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_prompt(&addr_str);
 
         line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(e) => {
-                println_colored(Color::Red, &format!("Error reading input: {e}"));
-                continue;
+
+        let read_line = reader.read_line(&mut line);
+        let check_shutdown = async {
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if *repl_shutdown_flag.lock().await {
+                    return;
+                }
+            }
+        };
+
+        tokio::select! {
+            result = read_line => {
+                match result {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => {
+                        println_colored(Color::Red, &format!("Error reading input: {e}"));
+                        continue;
+                    }
+                }
+            }
+            _ = check_shutdown => {
+                println!();
+                break;
             }
         }
 
@@ -339,6 +358,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    println!();
     match server_handle.await {
         Ok(Ok(())) => {
             println_colored(Color::Green, "Server shutdown complete. Goodbye!");
@@ -352,6 +372,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!();
+    io::stdout().flush().ok();
     Ok(())
 }
 
@@ -385,9 +406,11 @@ async fn shutdown_signal(mut health_reporter: HealthReporter, shutdown_flag: Arc
     tokio::select! {
         _ = ctrl_c => {
             info!("Received Ctrl+C signal");
+            *shutdown_flag.lock().await = true;
         },
         _ = terminate => {
             info!("Received terminate signal");
+            *shutdown_flag.lock().await = true;
         },
         _ = repl_quit => {
             info!("Shutdown requested via REPL");

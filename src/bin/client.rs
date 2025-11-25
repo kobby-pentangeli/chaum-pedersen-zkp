@@ -1,7 +1,6 @@
 use std::io::{self, Write};
 
-use argon2::password_hash::SaltString;
-use argon2::{Argon2, PasswordHasher};
+use argon2::Argon2;
 use chaum_pedersen::proto::auth_service_client::AuthServiceClient;
 use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
@@ -13,8 +12,10 @@ use chaum_pedersen::{
 use clap::Parser;
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
-use sha2::{Digest, Sha256};
+use curve25519_dalek::scalar::Scalar as DalekScalar;
+use sha2::{Digest, Sha256, Sha512};
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tonic::Request;
 use tonic::transport::Channel;
 
 #[derive(Parser, Debug)]
@@ -176,27 +177,28 @@ fn display_prompt(server: &str) {
 }
 
 fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
-    let mut hasher = Sha256::new();
-    hasher.update(b"chaum-pedersen-v1.0.0-");
-    hasher.update(user_id.as_bytes());
-    let hash_result = hasher.finalize();
+    let salt_input = format!("chaum-pedersen-v1.0.0-{}", user_id);
+    let salt_hash = Sha256::digest(salt_input.as_bytes());
+    let salt = &salt_hash[0..16];
 
-    let salt = SaltString::encode_b64(&hash_result[..16])
-        .unwrap_or_else(|e| panic!("Salt encoding failed: {e}"));
-
-    let argon2 = Argon2::default();
-    let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        Default::default(),
+        Default::default(),
+    );
+    let mut output_key_material = [0u8; 32];
+    argon2
+        .hash_password_into(password.as_bytes(), salt, &mut output_key_material)
         .unwrap_or_else(|e| panic!("Password hashing failed: {e}"));
 
-    let hash_bytes = hash
-        .hash
-        .unwrap_or_else(|| unreachable!("Hash always present"));
-    let hash_bytes = hash_bytes.as_bytes();
+    let mut hasher = Sha512::new();
+    hasher.update(output_key_material);
+    hasher.update(b"chaum-pedersen-zkp-scalar-derivation");
+    let hash = hasher.finalize();
 
-    let mut scalar_bytes = [0u8; 32];
-    scalar_bytes.copy_from_slice(&hash_bytes[..32]);
+    let scalar = DalekScalar::from_bytes_mod_order_wide(&hash.into());
 
+    let scalar_bytes = scalar.to_bytes();
     Ristretto255::scalar_from_bytes(&scalar_bytes)
         .unwrap_or_else(|e| panic!("Failed to create scalar from password hash: {e}"))
 }
@@ -214,7 +216,7 @@ async fn do_register(
     let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
     let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
 
-    let request = tonic::Request::new(RegistrationRequest {
+    let request = Request::new(RegistrationRequest {
         user_id: user.to_string(),
         y1: y1_bytes,
         y2: y2_bytes,
@@ -235,7 +237,7 @@ async fn do_login(
     user: &str,
     password: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let challenge_req = tonic::Request::new(ChallengeRequest {
+    let challenge_req = Request::new(ChallengeRequest {
         user_id: user.to_string(),
     });
 
@@ -260,7 +262,7 @@ async fn do_login(
     let proof = prover.prove_with_transcript(&mut rng, &mut transcript)?;
     let proof_bytes = proof.to_bytes()?;
 
-    let verify_req = tonic::Request::new(VerificationRequest {
+    let verify_req = Request::new(VerificationRequest {
         user_id: user.to_string(),
         challenge_id: challenge_resp.challenge_id,
         proof: proof_bytes,
@@ -288,10 +290,7 @@ async fn do_batch_register(
     passwords: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let batch_size = users.len();
-    println_colored(
-        Color::White,
-        &format!("Generating statements for {batch_size} users..."),
-    );
+    println_colored(Color::White, &format!("Registering {batch_size} users..."));
 
     let mut y1_values = Vec::with_capacity(batch_size);
     let mut y2_values = Vec::with_capacity(batch_size);
@@ -306,7 +305,7 @@ async fn do_batch_register(
         y2_values.push(Ristretto255::element_to_bytes(statement.y2()));
     }
 
-    let request = tonic::Request::new(BatchRegistrationRequest {
+    let request = Request::new(BatchRegistrationRequest {
         user_ids: users.to_vec(),
         y1_values,
         y2_values,
@@ -348,14 +347,14 @@ async fn do_batch_login(
     let batch_size = users.len();
     println_colored(
         Color::White,
-        &format!("Generating proofs for {batch_size} users..."),
+        &format!("Authenticating {batch_size} users..."),
     );
 
     let mut challenge_ids = Vec::with_capacity(batch_size);
     let mut proofs = Vec::with_capacity(batch_size);
 
     for (i, user) in users.iter().enumerate() {
-        let challenge_req = tonic::Request::new(ChallengeRequest {
+        let challenge_req = Request::new(ChallengeRequest {
             user_id: user.to_string(),
         });
         let challenge_resp = client.create_challenge(challenge_req).await?.into_inner();
@@ -374,7 +373,7 @@ async fn do_batch_login(
         proofs.push(proof.to_bytes()?);
     }
 
-    let request = tonic::Request::new(BatchVerificationRequest {
+    let request = Request::new(BatchVerificationRequest {
         user_ids: users.to_vec(),
         challenge_ids,
         proofs,
@@ -445,12 +444,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_prompt(&args.server);
 
         line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(e) => {
-                println_colored(Color::Red, &format!("Error reading input: {e}"));
-                continue;
+
+        let read_line = reader.read_line(&mut line);
+        let ctrl_c = tokio::signal::ctrl_c();
+
+        tokio::select! {
+            result = read_line => {
+                match result {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => {
+                        println_colored(Color::Red, &format!("Error reading input: {e}"));
+                        continue;
+                    }
+                }
+            }
+            _ = ctrl_c => {
+                println!();
+                println!();
+                println_colored(Color::Yellow, "Interrupt received. Exiting...");
+                println!();
+                println_colored(Color::Green, "Goodbye!");
+                println!();
+                let _ = io::stdout().flush();
+                break;
             }
         }
 
@@ -481,7 +498,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!();
                 println_colored(Color::Cyan, "Client Status:");
                 println_colored(Color::White, &format!("  Server: {}", args.server));
-                println_colored(Color::White, "  Connection: active");
+
+                let health_check = Request::new(ChallengeRequest {
+                    user_id: "__health_check__".to_string(),
+                });
+
+                let is_connected = match tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    client.create_challenge(health_check),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => true,
+                    Ok(Err(status)) => !matches!(
+                        status.code(),
+                        tonic::Code::Unavailable
+                            | tonic::Code::DeadlineExceeded
+                            | tonic::Code::Cancelled
+                    ),
+                    Err(_) => false,
+                };
+
+                if is_connected {
+                    println_colored(Color::Green, "  Connection: active");
+                } else {
+                    println_colored(Color::Red, "  Connection: inactive (server unreachable)");
+                    println_colored(Color::Yellow, "  Tip: Check if server is running");
+                }
                 println!();
             }
             Command::Help => {

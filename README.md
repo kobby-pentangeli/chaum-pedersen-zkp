@@ -9,7 +9,7 @@ Rust implementation of the Chaum-Pedersen Zero-Knowledge Proof protocol for pass
 
 ## Overview
 
-This implementation allows a **prover (client)** to demonstrate knowledge of a secret discrete logarithm `x` such that `y1 = g^x` and `y2 = h^x` without revealing `x` to the **verifier (server)**. The server never stores passwords—only public statements (y1, y2).
+This implementation allows a **prover (client)** to demonstrate knowledge of a secret discrete logarithm `x` such that `y1 = g^x` and `y2 = h^x` without revealing `x` to the **verifier (server)**. The server never stores passwords, only public statements (y1, y2).
 
 **Key Features:**
 
@@ -218,7 +218,7 @@ Authenticated: Proof verified successfully
   Session token: a1b2c3d4e5f6...
 
 zkp-client@http://127.0.0.1:50051> /batch-register bob,charlie pass1,pass2
-Generating statements for 2 users...
+Registering 2 users...
   [OK] bob: User 'bob' registered
   [OK] charlie: User 'charlie' registered
 Batch complete: 2/2 registered
