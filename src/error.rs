@@ -1,4 +1,6 @@
-/// Error types for the Chaum-Pedersen protocol library.
+//! Error types for Chaum-Pedersen
+
+/// Main error types for the library.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Invalid group parameters were provided.

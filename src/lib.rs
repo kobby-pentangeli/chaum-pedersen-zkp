@@ -64,13 +64,9 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::all)]
 
-/// Error types for the library.
 pub mod error;
-/// Core cryptographic primitives (ristretto, gadgets, transcripts).
 pub mod primitives;
-/// Prover (client) implementation.
 pub mod prover;
-/// Verifier (server) implementation.
 pub mod verifier;
 
 #[cfg(feature = "grpc")]
@@ -88,5 +84,5 @@ pub use primitives::{
 pub use prover::Prover;
 pub use verifier::{BatchVerifier, Verifier};
 
-/// A specialized Result type for Chaum-Pedersen operations.
+/// Result type for Chaum-Pedersen operations.
 pub type Result<T> = core::result::Result<T, Error>;
