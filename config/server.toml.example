@@ -1,0 +1,34 @@
+# Example server configuration file
+# Copy this to `config/server.toml` and adjust values as needed
+#
+# Configuration loading order (later sources override earlier ones):
+# 1. This TOML file (`config/server.toml`)
+# 2. Environment variables (SERVER_* prefix)
+#
+# Example: SERVER_HOST=0.0.0.0 SERVER_PORT=8080 cargo run --bin server
+
+# Server network settings
+host = "127.0.0.1"
+port = 50051
+
+# Rate limiting configuration (token bucket algorithm)
+[rate_limit]
+requests_per_minute = 60  # Maximum sustained rate
+burst = 10                # Maximum burst capacity
+
+# Metrics and monitoring
+[metrics]
+enabled = true
+port = 9090               # Prometheus metrics endpoint port
+
+# TLS/SSL configuration
+[tls]
+enabled = false
+cert_path = ""            # Path to PEM certificate file (required if enabled=true)
+key_path = ""             # Path to PEM private key file (required if enabled=true)
+
+# Example TLS configuration:
+# [tls]
+# enabled = true
+# cert_path = "/etc/certs/server.crt"
+# key_path = "/etc/certs/server.key"

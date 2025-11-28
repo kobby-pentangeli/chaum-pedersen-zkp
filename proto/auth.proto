@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package auth;
+
+service AuthService {
+  rpc Register(RegistrationRequest) returns (RegistrationResponse);
+  rpc RegisterBatch(BatchRegistrationRequest) returns (BatchRegistrationResponse);
+  rpc CreateChallenge(ChallengeRequest) returns (ChallengeResponse);
+  rpc VerifyProof(VerificationRequest) returns (VerificationResponse);
+  rpc VerifyProofBatch(BatchVerificationRequest) returns (BatchVerificationResponse);
+}
+
+message RegistrationRequest {
+  string user_id = 1;
+  bytes y1 = 2;
+  bytes y2 = 3;
+}
+
+message RegistrationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ChallengeRequest {
+  string user_id = 1;
+}
+
+message ChallengeResponse {
+  bytes challenge_id = 1;
+  int64 expires_at = 2;
+}
+
+message VerificationRequest {
+  string user_id = 1;
+  bytes challenge_id = 2;
+  bytes proof = 3;
+}
+
+message VerificationResponse {
+  bool success = 1;
+  string message = 2;
+  optional string session_token = 3;
+}
+
+message BatchVerificationRequest {
+  repeated string user_ids = 1;
+  repeated bytes challenge_ids = 2;
+  repeated bytes proofs = 3;
+}
+
+message BatchVerificationResponse {
+  repeated VerificationResult results = 1;
+}
+
+message VerificationResult {
+  bool success = 1;
+  string message = 2;
+  optional string session_token = 3;
+}
+
+message BatchRegistrationRequest {
+  repeated string user_ids = 1;
+  repeated bytes y1_values = 2;
+  repeated bytes y2_values = 3;
+}
+
+message BatchRegistrationResponse {
+  repeated RegistrationResult results = 1;
+}
+
+message RegistrationResult {
+  bool success = 1;
+  string message = 2;
+}
