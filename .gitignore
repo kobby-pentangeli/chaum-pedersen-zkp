@@ -3,6 +3,7 @@
 .vscode/
 
 # Build artifacts
+/src/auth.rs
 /target
 Cargo.lock
 

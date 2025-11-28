@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package chaum_pedersen.v1;
+package auth;
 
 service AuthService {
   rpc Register(RegistrationRequest) returns (RegistrationResponse);

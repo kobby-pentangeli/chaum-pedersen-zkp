@@ -73,7 +73,7 @@ pub mod verifier;
 /// Generated protobuf types.
 #[allow(missing_docs)]
 pub mod proto {
-    tonic::include_proto!("chaum_pedersen.v1");
+    include!("auth.rs");
 }
 
 pub use error::Error;
