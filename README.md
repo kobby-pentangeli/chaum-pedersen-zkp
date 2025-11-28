@@ -21,6 +21,10 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 - **gRPC API**: Server with TLS, rate limiting, metrics
 - **Ristretto255**: Fast, prime-order elliptic curve with ~128-bit security
 
+## TODO
+
+- [x] **Security Audit**
+
 ## Architecture
 
 ```txt
