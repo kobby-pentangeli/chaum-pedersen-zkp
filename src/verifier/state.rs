@@ -19,42 +19,30 @@ const MAX_TOTAL_SESSIONS: usize = 100_000;
 /// Registered user data.
 #[derive(Clone, Debug)]
 pub struct UserData {
-    /// Unique identifier for the user.
     pub user_id: String,
-    /// User's public statement (y1, y2).
     pub statement: Statement,
-    /// Unix timestamp of registration.
     pub registered_at: u64,
 }
 
-/// Active challenge data.
+/// Active challenge data (with creation/expiry Unix timestamps).
 #[derive(Clone, Debug)]
 pub struct ChallengeData {
-    /// Unique challenge identifier.
     pub challenge_id: Vec<u8>,
-    /// User ID associated with this challenge.
     pub user_id: String,
-    /// Unix timestamp when challenge was created.
     pub created_at: u64,
-    /// Unix timestamp when challenge expires.
     pub expires_at: u64,
 }
 
-/// Active session data.
+/// Active session data (with creation/expiry Unix timestamps).
 #[derive(Clone, Debug)]
 pub struct SessionData {
-    /// Session token (hex-encoded).
     pub token: String,
-    /// User ID associated with this session.
     pub user_id: String,
-    /// Unix timestamp when session was created.
     pub created_at: u64,
-    /// Unix timestamp when session expires.
     pub expires_at: u64,
 }
 
 impl SessionData {
-    /// Creates new session data with automatic expiry calculation.
     pub fn new(token: String, user_id: String) -> Self {
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -70,7 +58,6 @@ impl SessionData {
         }
     }
 
-    /// Checks if the session has expired.
     pub fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -82,7 +69,6 @@ impl SessionData {
 }
 
 impl ChallengeData {
-    /// Creates new challenge data with automatic expiry calculation.
     pub fn new(challenge_id: Vec<u8>, user_id: String) -> Self {
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -98,7 +84,6 @@ impl ChallengeData {
         }
     }
 
-    /// Checks if the challenge has expired.
     pub fn is_expired(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -122,7 +107,6 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    /// Creates new server state with empty registries.
     pub fn new() -> Self {
         Self {
             users: Arc::new(RwLock::new(HashMap::new())),
@@ -133,7 +117,6 @@ impl ServerState {
         }
     }
 
-    /// Registers a new user with the provided data.
     pub async fn register_user(&self, user_data: UserData) -> Result<(), StateError> {
         let mut users = self.users.write().await;
 
@@ -149,13 +132,11 @@ impl ServerState {
         Ok(())
     }
 
-    /// Retrieves user data by user ID.
     pub async fn get_user(&self, user_id: &str) -> Option<UserData> {
         let users = self.users.read().await;
         users.get(user_id).cloned()
     }
 
-    /// Creates a new challenge for the specified user.
     pub async fn create_challenge(
         &self,
         user_id: &str,
@@ -190,13 +171,6 @@ impl ServerState {
         Ok(expires_at)
     }
 
-    /// Retrieves challenge data by challenge ID.
-    pub async fn get_challenge(&self, challenge_id: &[u8]) -> Option<ChallengeData> {
-        let challenges = self.challenges.read().await;
-        challenges.get(challenge_id).cloned()
-    }
-
-    /// Consumes a challenge, removing it from active challenges.
     pub async fn consume_challenge(
         &self,
         challenge_id: &[u8],
@@ -225,7 +199,6 @@ impl ServerState {
         Ok(challenge_data)
     }
 
-    /// Removes all expired challenges from the state.
     pub async fn cleanup_expired_challenges(&self) {
         let mut challenges = self.challenges.write().await;
         let mut user_challenges = self.user_challenges.write().await;
@@ -237,15 +210,14 @@ impl ServerState {
             .collect::<Vec<Vec<u8>>>();
 
         for challenge_id in expired {
-            if let Some(data) = challenges.remove(&challenge_id) {
-                if let Some(user_challs) = user_challenges.get_mut(&data.user_id) {
-                    user_challs.retain(|id| id != &challenge_id);
-                }
+            if let Some(data) = challenges.remove(&challenge_id)
+                && let Some(user_challs) = user_challenges.get_mut(&data.user_id)
+            {
+                user_challs.retain(|id| id != &challenge_id);
             }
         }
     }
 
-    /// Creates a new session for the specified user.
     pub async fn create_session(&self, token: String, user_id: String) -> Result<(), StateError> {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
@@ -268,34 +240,6 @@ impl ServerState {
         Ok(())
     }
 
-    /// Validates a session token.
-    pub async fn validate_session(&self, token: &str) -> Result<String, StateError> {
-        let sessions = self.sessions.read().await;
-
-        let session_data = sessions.get(token).ok_or(StateError::SessionNotFound)?;
-
-        if session_data.is_expired() {
-            return Err(StateError::SessionExpired);
-        }
-
-        Ok(session_data.user_id.clone())
-    }
-
-    /// Revokes a session token.
-    pub async fn revoke_session(&self, token: &str) -> Result<(), StateError> {
-        let mut sessions = self.sessions.write().await;
-        let mut user_sessions = self.user_sessions.write().await;
-
-        let session_data = sessions.remove(token).ok_or(StateError::SessionNotFound)?;
-
-        if let Some(user_session_tokens) = user_sessions.get_mut(&session_data.user_id) {
-            user_session_tokens.retain(|t| t != token);
-        }
-
-        Ok(())
-    }
-
-    /// Removes all expired sessions from the state.
     pub async fn cleanup_expired_sessions(&self) {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
@@ -307,25 +251,22 @@ impl ServerState {
             .collect::<Vec<String>>();
 
         for token in expired {
-            if let Some(data) = sessions.remove(&token) {
-                if let Some(user_session_tokens) = user_sessions.get_mut(&data.user_id) {
-                    user_session_tokens.retain(|t| t != &token);
-                }
+            if let Some(data) = sessions.remove(&token)
+                && let Some(user_session_tokens) = user_sessions.get_mut(&data.user_id)
+            {
+                user_session_tokens.retain(|t| t != &token);
             }
         }
     }
 
-    /// Returns the number of registered users.
     pub async fn user_count(&self) -> usize {
         self.users.read().await.len()
     }
 
-    /// Returns the number of active sessions.
     pub async fn session_count(&self) -> usize {
         self.sessions.read().await.len()
     }
 
-    /// Returns the number of pending challenges.
     pub async fn challenge_count(&self) -> usize {
         self.challenges.read().await.len()
     }

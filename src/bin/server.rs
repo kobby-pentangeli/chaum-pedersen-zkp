@@ -205,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let (mut health_reporter, health_service) = health_reporter();
+    let (health_reporter, health_service) = health_reporter();
     health_reporter
         .set_serving::<AuthServiceServer<AuthServiceImpl>>()
         .await;
@@ -376,7 +376,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn shutdown_signal(mut health_reporter: HealthReporter, shutdown_flag: Arc<Mutex<bool>>) {
+async fn shutdown_signal(health_reporter: HealthReporter, shutdown_flag: Arc<Mutex<bool>>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await

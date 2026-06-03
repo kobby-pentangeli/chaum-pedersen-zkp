@@ -11,7 +11,12 @@ readme = "README.md"
 keywords = ["zkp", "chaum-pedersen", "authentication"]
 categories = ["cryptography"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
+
+# prost and tonic-prost are referenced only by the tonic-generated code emitted into OUT_DIR;
+# required at build and runtime.
+[package.metadata.cargo-machete]
+ignored = ["prost", "tonic-prost"]
 
 [lib]
 name = "chaum_pedersen"
@@ -33,13 +38,13 @@ merlin = "3.0"
 zeroize = { version = "1.7", features = ["derive", "alloc"] }
 subtle = "2.6"
 rand_core = { version = "0.6", features = ["getrandom"] }
-getrandom = "0.2"
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 
-tonic = { version = "0.12", features = ["tls"], optional = true }
-prost = { version = "0.13", optional = true }
+tonic = { version = "0.14", features = ["tls-ring"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
@@ -48,13 +53,7 @@ tokio = { version = "1", features = [
     "io-util",
     "io-std",
 ], optional = true }
-tonic-health = { version = "0.12", optional = true }
-tonic-reflection = { version = "0.12", optional = true }
-tower = { version = "0.4", features = [
-    "timeout",
-    "limit",
-    "load-shed",
-], optional = true }
+tonic-health = { version = "0.14", optional = true }
 
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 argon2 = { version = "0.5", optional = true }
@@ -67,31 +66,28 @@ tracing-subscriber = { version = "0.3.20", features = [
     "env-filter",
 ], optional = true }
 metrics = { version = "0.24", optional = true }
-metrics-exporter-prometheus = { version = "0.17", optional = true }
+metrics-exporter-prometheus = { version = "0.18", optional = true }
 hex = { version = "0.4", optional = true }
 
 [build-dependencies]
-tonic-build = { version = "0.12", optional = true }
-prost-build = { version = "0.13", optional = true }
+tonic-prost-build = { version = "0.14", optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 
 [features]
 default = []
 grpc = [
     "dep:tonic",
+    "dep:tonic-prost",
     "dep:prost",
     "dep:tokio",
-    "dep:tonic-build",
-    "dep:prost-build",
+    "dep:tonic-prost-build",
 ]
 server = [
     "grpc",
     "dep:tonic-health",
-    "dep:tonic-reflection",
-    "dep:tower",
     "dep:tracing",
     "dep:tracing-subscriber",
     "dep:metrics",

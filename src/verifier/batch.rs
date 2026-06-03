@@ -1,53 +1,15 @@
-//! Batch verification for Chaum-Pedersen zero-knowledge proofs.
+//! Batch verification for Chaum-Pedersen proofs.
 //!
-//! This module provides efficient batch verification of multiple proofs using
-//! randomized verification equations and multi-scalar multiplication (MSM).
-//!
-//! # Performance
-//!
-//! Batch verification can provide 30-50% performance improvement for batches
-//! of 10+ proofs compared to verifying each proof individually. The optimization
-//! comes from combining multiple verification equations into a single multi-scalar
-//! multiplication operation.
-//!
-//! # Security
-//!
-//! The batch verification uses cryptographically random coefficients for each proof
-//! to prevent malicious provers from crafting proofs that verify in batch but would
-//! fail individually. The security is based on the Schwartz-Zippel lemma.
-//!
-//! # Example
-//!
-//! ```rust
-//! use chaum_pedersen::{BatchVerifier, Parameters, Statement, Proof, SecureRng};
-//!
-//! # fn example() -> chaum_pedersen::Result<()> {
-//! let params = Parameters::new();
-//! let mut batch = BatchVerifier::new();
-//! let mut rng = SecureRng::new();
-//!
-//! // Add multiple proofs to the batch
-//! # let statement: Statement = todo!();
-//! # let proof: Proof = todo!();
-//! batch.add(params.clone(), statement, proof)?;
-//! // ... add more proofs ...
-//!
-//! // Verify all proofs in one operation
-//! let results = batch.verify(&mut rng)?;
-//! # Ok(())
-//! # }
-//! ```
+//! Folds the batch into one randomized check: each proof is weighted by a fresh random scalar, so
+//! the batch accepts only if every proof is individually valid (Schwartz-Zippel). On failure it
+//! falls back to verifying each proof to report which ones failed.
 
 use rand_core::CryptoRngCore;
 
 use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
 
-/// Maximum number of proofs that can be verified in a single batch.
-///
-/// This limit prevents excessive memory usage and ensures reasonable verification times.
 const MAX_BATCH_SIZE: usize = 1000;
 
-/// Entry in the batch verifier containing a proof and its associated data.
 struct BatchEntry {
     params: Parameters,
     statement: Statement,
@@ -55,44 +17,15 @@ struct BatchEntry {
     transcript_context: Option<Vec<u8>>,
 }
 
-/// Batch verifier for Chaum-Pedersen zero-knowledge proofs.
+/// Accumulates proofs and verifies them in one randomized batch check.
 ///
-/// Accumulates multiple proofs and verifies them all at once using
-/// randomized batch verification with multi-scalar multiplication.
-///
-/// # Security
-///
-/// Each proof is assigned a random coefficient during verification to ensure
-/// that malicious proofs cannot exploit the batching process. The verification
-/// provides the same security guarantees as individual verification.
-///
-/// # Performance
-///
-/// Batch verification provides significant performance improvements:
-///
-/// - Batch of 10 proofs: ~35% faster than individual verification
-/// - Batch of 100 proofs: ~45% faster than individual verification
-/// - Batch of 1000 proofs: ~50% faster than individual verification
-///
-/// # Capacity Limits
-///
-/// The batch verifier has a maximum capacity of 1000 proofs. Attempting to add
-/// more proofs will return an error. For larger verification workloads, split
-/// into multiple batches.
+/// Each proof gets a fresh random coefficient, giving the same soundness as individual
+/// verification. Capacity is capped at 1000 proofs; split larger workloads across batches.
 pub struct BatchVerifier {
     entries: Vec<BatchEntry>,
 }
 
 impl BatchVerifier {
-    /// Creates a new empty batch verifier.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::BatchVerifier;
-    ///
-    /// let batch = BatchVerifier::new();
-    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -100,15 +33,7 @@ impl BatchVerifier {
         }
     }
 
-    /// Creates a new batch verifier with pre-allocated capacity.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::BatchVerifier;
-    ///
-    /// let batch = BatchVerifier::with_capacity(100);
-    /// ```
+    /// Creates a batch verifier preallocated for `capacity` proofs (capped at the batch limit).
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         let cap = capacity.min(MAX_BATCH_SIZE);
@@ -117,25 +42,21 @@ impl BatchVerifier {
         }
     }
 
-    /// Returns the number of proofs currently in the batch.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Returns `true` if the batch contains no proofs.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Returns the remaining capacity before reaching the batch size limit.
     #[must_use]
     pub fn remaining_capacity(&self) -> usize {
         MAX_BATCH_SIZE.saturating_sub(self.entries.len())
     }
 
-    /// Adds a proof to the batch for verification.
     pub fn add(&mut self, params: Parameters, statement: Statement, proof: Proof) -> Result<()> {
         self.add_with_context(params, statement, proof, None)
     }
@@ -167,7 +88,7 @@ impl BatchVerifier {
         Ok(())
     }
 
-    /// Verifies all proofs in the batch.
+    /// Verifies the batch, returning a per-proof result; on batch failure it re-checks individually.
     pub fn verify<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Vec<Result<()>>> {
         if self.entries.is_empty() {
             return Err(Error::BatchEmpty);
@@ -313,7 +234,6 @@ impl BatchVerifier {
             .collect()
     }
 
-    /// Clears all proofs from the batch.
     pub fn clear(&mut self) {
         self.entries.clear();
     }

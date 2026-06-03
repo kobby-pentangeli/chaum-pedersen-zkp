@@ -1,7 +1,4 @@
 //! Prover (client) implementation for the Chaum-Pedersen protocol.
-//!
-//! This module contains the prover's logic for generating zero-knowledge proofs
-//! that demonstrate knowledge of a discrete logarithm without revealing it.
 
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -13,15 +10,14 @@ use crate::{
 
 /// Prover for the Chaum-Pedersen zero-knowledge protocol.
 ///
-/// Generates zero-knowledge proofs demonstrating knowledge of a discrete logarithm `x`
-/// such that `y1 = g^x` and `y2 = h^x` without revealing `x`.
+/// Generates proofs of knowledge of a discrete logarithm `x` such that `y1 = g^x` and `y2 = h^x`
+/// without revealing `x`.
 ///
 /// # Security
 ///
-/// - Always use [`SecureRng`](crate::SecureRng) for randomness generation
-/// - Bind proofs to specific contexts using transcript methods to prevent replay attacks
-/// - Never reuse witness values across different protocol instances
-/// - Ensure the witness is zeroized after use (automatic with [`Witness`])
+/// - Use [`SecureRng`](crate::SecureRng) for randomness.
+/// - Bind proofs to a context via the transcript to prevent replay.
+/// - Never reuse a witness across protocol instances.
 pub struct Prover {
     params: Parameters,
     witness: Witness,
@@ -29,22 +25,7 @@ pub struct Prover {
 }
 
 impl Prover {
-    /// Creates a new prover with the given parameters and witness.
-    ///
-    /// The statement is automatically computed from the witness as `y1 = g^x` and `y2 = h^x`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::{Prover, Parameters, Witness, Ristretto255, SecureRng};
-    ///
-    /// let params = Parameters::new();
-    /// let mut rng = SecureRng::new();
-    /// let x = Ristretto255::random_scalar(&mut rng);
-    /// let witness = Witness::new(x);
-    ///
-    /// let prover = Prover::new(params, witness);
-    /// ```
+    /// Creates a prover, computing the statement from the witness as `y1 = g^x`, `y2 = h^x`.
     pub fn new(params: Parameters, witness: Witness) -> Self {
         let statement = Statement::from_witness(&params, &witness);
         Self {
@@ -54,11 +35,7 @@ impl Prover {
         }
     }
 
-    /// Creates a prover from an existing statement and witness.
-    ///
-    /// # Security
-    ///
-    /// The caller must ensure the statement was correctly computed from the witness.
+    /// Creates a prover from a precomputed statement; the caller must ensure it matches the witness.
     pub fn with_statement(params: Parameters, witness: Witness, statement: Statement) -> Self {
         Self {
             params,
@@ -67,22 +44,18 @@ impl Prover {
         }
     }
 
-    /// Returns the public statement.
     pub fn statement(&self) -> &Statement {
         &self.statement
     }
 
-    /// Generates a non-interactive zero-knowledge proof using Fiat-Shamir.
-    ///
-    /// This is the recommended method for most use cases.
+    /// Generates a non-interactive Fiat-Shamir proof. This is
+    /// the recommended entry point.
     pub fn prove<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Proof> {
         let mut transcript = Transcript::new();
         self.prove_with_transcript(rng, &mut transcript)
     }
 
-    /// Generates a proof using a custom transcript.
-    ///
-    /// Allows the caller to add additional context to the transcript.
+    /// Generates a proof over a caller-supplied transcript, enabling extra context binding.
     pub fn prove_with_transcript<R: CryptoRngCore>(
         &self,
         rng: &mut R,
@@ -109,9 +82,7 @@ impl Prover {
         Ok(Proof::new(commitment, response))
     }
 
-    /// Interactive protocol: generates commitment (first message).
-    ///
-    /// Returns the commitment and the secret nonce (must be kept secret).
+    /// Interactive protocol, message 1: returns the commitment and the secret nonce to retain.
     pub fn commit<R: CryptoRngCore>(&self, rng: &mut R) -> (Commitment, Nonce) {
         let k = Ristretto255::random_scalar(rng);
         let r1 = Ristretto255::scalar_mul(self.params.generator_g(), &k);
@@ -120,9 +91,7 @@ impl Prover {
         (Commitment::new(r1, r2), Nonce::new(k))
     }
 
-    /// Interactive protocol: generates response (third message).
-    ///
-    /// Takes the secret nonce and the challenge to produce the response.
+    /// Interactive protocol, message 3: combines the nonce and challenge into the response.
     pub fn respond(&self, nonce: &Nonce, challenge: &Scalar) -> Response {
         let cx = Ristretto255::scalar_mul_scalar(challenge, self.witness.secret());
         let s = Ristretto255::scalar_add(nonce.k(), &cx);
@@ -131,21 +100,17 @@ impl Prover {
     }
 }
 
-/// Secret nonce used in the commitment phase.
-///
-/// Automatically zeroized when dropped.
+/// Secret nonce from the commitment phase; zeroized on drop.
 #[derive(Clone, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct Nonce {
     k: Scalar,
 }
 
 impl Nonce {
-    /// Creates a new nonce from a scalar.
     pub fn new(k: Scalar) -> Self {
         Self { k }
     }
 
-    /// Returns a reference to the nonce scalar.
     pub fn k(&self) -> &Scalar {
         &self.k
     }

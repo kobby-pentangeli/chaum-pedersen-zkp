@@ -48,12 +48,6 @@ pub enum StateError {
     #[error("too many active challenges for user")]
     TooManyChallenges,
 
-    #[error("session not found")]
-    SessionNotFound,
-
-    #[error("session expired")]
-    SessionExpired,
-
     #[error("too many active sessions for user")]
     TooManySessions,
 

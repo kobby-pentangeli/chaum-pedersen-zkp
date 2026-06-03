@@ -1,23 +1,17 @@
-//! Verifier (server) implementation for the Chaum-Pedersen protocol.
-//!
-//! This module contains the verifier's logic for validating zero-knowledge proofs
-//! and managing server-side state, configuration, and gRPC services.
+//! Verifier (server) implementation:
+//! proof validation plus server state, config, and gRPC.
 
 use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
 
-/// Batch verification for multiple proofs.
 pub mod batch;
 
 #[cfg(feature = "server")]
-/// Server configuration and rate limiting.
 pub mod config;
 
 #[cfg(feature = "server")]
-/// gRPC service implementation.
 pub mod service;
 
 #[cfg(feature = "server")]
-/// Server state management.
 pub mod state;
 
 pub use batch::BatchVerifier;
@@ -30,93 +24,30 @@ pub use state::ServerState;
 
 /// Verifier for the Chaum-Pedersen zero-knowledge protocol.
 ///
-/// Validates zero-knowledge proofs of discrete logarithm equality without learning
-/// the secret value `x`.
+/// Validates proofs of discrete-log equality without learning `x`.
 ///
 /// # Security
 ///
-/// - Always validate the statement before verification
-/// - Use the same transcript context that was used during proof generation
-/// - Reject proofs if the transcript context doesn't match (prevents replay attacks)
-/// - Verification is deterministic and constant-time to resist timing attacks
+/// - Validate the statement before verification.
+/// - Use the same transcript context as the prover; a mismatch rejects the proof (anti-replay).
 pub struct Verifier {
     params: Parameters,
     statement: Statement,
 }
 
 impl Verifier {
-    /// Creates a new verifier with the given parameters and statement.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Ristretto255};
-    ///
-    /// let params = Parameters::new();
-    /// let g = Ristretto255::generator_g();
-    /// let h = Ristretto255::generator_h();
-    /// let statement = Statement::new(g, h);
-    ///
-    /// let verifier = Verifier::new(params, statement);
-    /// ```
     pub fn new(params: Parameters, statement: Statement) -> Self {
         Self { params, statement }
     }
 
-    /// Verifies a non-interactive zero-knowledge proof.
-    ///
-    /// Returns `Ok(())` if the proof is valid, `Err` otherwise.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Proof, Parameters, Statement, Ristretto255};
-    ///
-    /// # let params = Parameters::new();
-    /// # let statement = Statement::new(
-    /// #     Ristretto255::generator_g(),
-    /// #     Ristretto255::generator_h()
-    /// # );
-    /// # let proof = todo!(); // Assume we have a proof
-    /// let verifier = Verifier::new(params, statement);
-    /// let result = verifier.verify(&proof);
-    /// assert!(result.is_ok());
-    /// ```
+    /// Verifies a non-interactive proof; `Ok(())` if valid.
     pub fn verify(&self, proof: &Proof) -> Result<()> {
         let mut transcript = Transcript::new();
         self.verify_with_transcript(proof, &mut transcript)
     }
 
-    /// Verifies a proof using a custom transcript.
-    ///
-    /// The transcript must match the one used during proof generation. This is critical
-    /// for security as it binds the proof to a specific context (e.g., session ID,
-    /// challenge ID) and prevents replay attacks.
-    ///
-    /// # Security
-    ///
-    /// Always use the same transcript context that was used during proof generation.
-    /// Mismatched contexts will cause verification to fail, which protects against
-    /// replay attacks.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Transcript, Ristretto255};
-    ///
-    /// # let params = Parameters::new();
-    /// # let statement = Statement::new(
-    /// #     Ristretto255::generator_g(),
-    /// #     Ristretto255::generator_h()
-    /// # );
-    /// # let proof = todo!(); // Assume we have a proof
-    /// let verifier = Verifier::new(params, statement);
-    ///
-    /// let mut transcript = Transcript::new();
-    /// transcript.append_context(b"session-12345");
-    ///
-    /// let result = verifier.verify_with_transcript(&proof, &mut transcript);
-    /// ```
+    /// Verifies a proof against a transcript that must match the prover's; the context binding
+    /// prevents replay.
     pub fn verify_with_transcript(&self, proof: &Proof, transcript: &mut Transcript) -> Result<()> {
         self.statement.validate()?;
 
@@ -138,9 +69,7 @@ impl Verifier {
         self.verify_response(&challenge, proof)
     }
 
-    /// Interactive protocol: verifies the response (fourth message).
-    ///
-    /// Checks that `g^s = r1 * y1^c` and `h^s = r2 * y2^c`.
+    /// Interactive protocol, message 4: checks `g^s = r1·y1^c` and `h^s = r2·y2^c`.
     pub fn verify_response(&self, challenge: &Scalar, proof: &Proof) -> Result<()> {
         let g = self.params.generator_g();
         let h = self.params.generator_h();

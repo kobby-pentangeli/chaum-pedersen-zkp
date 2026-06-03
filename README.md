@@ -51,7 +51,7 @@ src/
 
 **Required:**
 
-- Rust 1.85+ ([install](https://rustup.rs/))
+- Rust 1.88+ ([install](https://rustup.rs/))
 - Protocol Buffers compiler (`protoc`)
 
 **Install protoc:**
