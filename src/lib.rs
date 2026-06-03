@@ -56,7 +56,8 @@ pub use error::Error;
 #[cfg(feature = "server")]
 pub use error::StateError;
 pub use primitives::{
-    Commitment, Element, OsRng, Parameters, Proof, Response, Scalar, Statement, Transcript, Witness,
+    CIPHERSUITE, Commitment, Element, OsRng, Parameters, Proof, Response, Scalar, Statement,
+    Transcript, Witness,
 };
 pub use prover::Prover;
 pub use verifier::{BatchVerifier, Verifier};

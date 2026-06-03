@@ -38,7 +38,7 @@ fn main() {
     println!("  Proof generated using Fiat-Shamir transform\n");
 
     println!("Step 5: Serialize proof for transmission");
-    let proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let proof_bytes = proof.to_bytes();
     println!("  Proof size: {} bytes\n", proof_bytes.len());
 
     println!("Step 6: Deserialize proof");

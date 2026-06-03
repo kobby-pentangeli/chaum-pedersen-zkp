@@ -53,12 +53,10 @@ fn reject_invalid_proof_corrupted_commitment() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let mut proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let mut proof_bytes = proof.to_bytes();
 
-    let commitment_start = 1;
-    if proof_bytes.len() > commitment_start + 10 {
-        proof_bytes[commitment_start + 5] ^= 0xFF;
-    }
+    // r1 begins at byte 1 (right after the version tag); flip a byte inside it.
+    proof_bytes[6] ^= 0xFF;
 
     if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
@@ -86,12 +84,11 @@ fn reject_invalid_proof_corrupted_response() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let mut proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let mut proof_bytes = proof.to_bytes();
 
+    // s occupies the final 32 bytes; flip one of them to corrupt the response.
     let len = proof_bytes.len();
-    if len > 100 {
-        proof_bytes[len - 10] ^= 0xFF;
-    }
+    proof_bytes[len - 10] ^= 0xFF;
 
     if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
@@ -231,8 +228,8 @@ fn multiple_proofs_for_same_witness_are_different() {
         .prove_with_transcript(&mut rng, &mut transcript2)
         .expect("Proof generation should succeed");
 
-    let proof1_bytes = proof1.to_bytes().expect("Serialization should succeed");
-    let proof2_bytes = proof2.to_bytes().expect("Serialization should succeed");
+    let proof1_bytes = proof1.to_bytes();
+    let proof2_bytes = proof2.to_bytes();
 
     assert_ne!(
         proof1_bytes, proof2_bytes,
@@ -259,7 +256,7 @@ fn multiple_proofs_for_same_witness_are_different() {
 }
 
 #[test]
-fn proof_size_is_reasonable() {
+fn proof_size_is_fixed() {
     let params = Parameters::new();
     let mut rng = OsRng;
 
@@ -271,17 +268,9 @@ fn proof_size_is_reasonable() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let proof_bytes = proof.to_bytes().expect("Serialization should succeed");
-
-    assert!(
-        proof_bytes.len() < 1024,
-        "Proof size should be less than 1KB, got {} bytes",
-        proof_bytes.len()
-    );
-
-    assert!(
-        proof_bytes.len() > 32,
-        "Proof size should be more than 32 bytes, got {} bytes",
-        proof_bytes.len()
+    assert_eq!(
+        proof.to_bytes().len(),
+        Proof::SIZE,
+        "Proof encoding is the fixed version ‖ r1 ‖ r2 ‖ s layout"
     );
 }

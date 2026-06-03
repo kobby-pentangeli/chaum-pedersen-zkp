@@ -73,7 +73,7 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::invalid_argument("Empty y1 or y2 values"));
         }
 
-        if req.y1.len() > 4096 || req.y2.len() > 4096 {
+        if req.y1.len() > 32 || req.y2.len() > 32 {
             return Err(Status::invalid_argument("y1 or y2 values too large"));
         }
 
@@ -165,7 +165,7 @@ impl AuthService for AuthServiceImpl {
                     )));
                 }
 
-                if y1_bytes.len() > 4096 || y2_bytes.len() > 4096 {
+                if y1_bytes.len() > 32 || y2_bytes.len() > 32 {
                     return Err(Status::invalid_argument(format!(
                         "y1 or y2 values too large for user {}",
                         i
@@ -325,7 +325,7 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::invalid_argument("Empty proof"));
         }
 
-        if req.proof.len() > 8192 {
+        if req.proof.len() > Proof::SIZE {
             return Err(Status::invalid_argument("Proof too large"));
         }
 
@@ -446,7 +446,7 @@ impl AuthService for AuthServiceImpl {
                     return Err(Status::invalid_argument(format!("Empty proof {}", i)));
                 }
 
-                if proof_bytes.len() > 8192 {
+                if proof_bytes.len() > Proof::SIZE {
                     return Err(Status::invalid_argument(format!("Proof {} too large", i)));
                 }
 

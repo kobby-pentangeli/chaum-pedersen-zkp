@@ -84,7 +84,7 @@ async fn full_authentication_flow() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let proof_bytes = Proof::to_bytes(&proof).expect("Serialization should succeed");
+    let proof_bytes = Proof::to_bytes(&proof).to_vec();
 
     let verify_request = Request::new(VerificationRequest {
         user_id: "alice".to_string(),
@@ -183,7 +183,7 @@ async fn challenge_single_use() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let proof_bytes = Proof::to_bytes(&proof).expect("Serialization should succeed");
+    let proof_bytes = Proof::to_bytes(&proof).to_vec();
 
     let verify_request1 = Request::new(VerificationRequest {
         user_id: "charlie".to_string(),
@@ -249,7 +249,7 @@ async fn wrong_password_fails_verification() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let proof_bytes = Proof::to_bytes(&proof).expect("Serialization should succeed");
+    let proof_bytes = Proof::to_bytes(&proof).to_vec();
 
     let verify_request = Request::new(VerificationRequest {
         user_id: "dave".to_string(),

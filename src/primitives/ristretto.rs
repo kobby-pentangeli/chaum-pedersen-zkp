@@ -16,23 +16,17 @@ use zeroize::Zeroize;
 
 use crate::{Error, Result};
 
-/// Number of bytes in a Ristretto255 scalar or compressed element (32 bytes).
+/// Number of bytes in a Ristretto255 scalar or compressed element.
 const RISTRETTO_BYTES: usize = 32;
 
-/// Number of bytes used for wide scalar reduction (64 bytes).
+/// Number of bytes used for wide scalar reduction.
 const WIDE_REDUCTION_BYTES: usize = 64;
-
-/// Domain separation tag for deriving the second generator `h`.
-///
-/// This ensures `h` is deterministically derived and cryptographically independent
-/// from the base generator `g`. Changing this value produces a different generator.
-const GENERATOR_H_DST: &[u8] = b"chaum-pedersen-zkp-v1.0.0-generator-h";
 
 // Deriving `h` runs a SHA-512 hash-to-group (Elligator) pass; the result is a constant, so it is
 // computed once on first use and shared thereafter rather than recomputed on every call.
 static GENERATOR_H: LazyLock<RistrettoPoint> = LazyLock::new(|| {
     let mut hasher = Sha512::new();
-    hasher.update(GENERATOR_H_DST);
+    hasher.update(super::domain::GENERATOR_H_DST);
     RistrettoPoint::from_uniform_bytes(&hasher.finalize().into())
 });
 

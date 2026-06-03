@@ -4,11 +4,8 @@
 use curve25519_dalek::scalar::Scalar as DalekScalar;
 use merlin::Transcript as MerlinTranscript;
 
-use super::Scalar;
+use super::{Scalar, domain};
 
-const PROTOCOL_LABEL: &[u8] = b"Chaum-Pedersen ZKP v1.0.0";
-const PROTOCOL_DST: &[u8] = b"chaum-pedersen-ristretto255";
-const CHALLENGE_DST: &[u8] = b"challenge";
 const WIDE_REDUCTION_BYTES: usize = 64;
 
 /// Fiat-Shamir transcript for the Chaum-Pedersen protocol,
@@ -17,36 +14,38 @@ pub struct Transcript(MerlinTranscript);
 
 impl Transcript {
     pub fn new() -> Self {
-        let mut transcript = MerlinTranscript::new(PROTOCOL_LABEL);
-        transcript.append_message(b"protocol", PROTOCOL_DST);
+        let mut transcript = MerlinTranscript::new(domain::PROTOCOL_LABEL);
+        transcript.append_message(domain::LABEL_PROTOCOL, domain::PROTOCOL_DST);
         Self(transcript)
     }
 
     /// Appends application context (session ID, domain, purpose) to bind the proof and prevent
     /// cross-protocol replay. Call before generating or verifying a proof.
     pub fn append_context(&mut self, context: &[u8]) {
-        self.0.append_message(b"context", context);
+        self.0.append_message(domain::LABEL_CONTEXT, context);
     }
 
     pub fn append_parameters(&mut self, generator_g: &[u8], generator_h: &[u8]) {
-        self.0.append_message(b"generator-g", generator_g);
-        self.0.append_message(b"generator-h", generator_h);
+        self.0
+            .append_message(domain::LABEL_GENERATOR_G, generator_g);
+        self.0
+            .append_message(domain::LABEL_GENERATOR_H, generator_h);
     }
 
     pub fn append_statement(&mut self, y1: &[u8], y2: &[u8]) {
-        self.0.append_message(b"y1", y1);
-        self.0.append_message(b"y2", y2);
+        self.0.append_message(domain::LABEL_Y1, y1);
+        self.0.append_message(domain::LABEL_Y2, y2);
     }
 
     pub fn append_commitment(&mut self, r1: &[u8], r2: &[u8]) {
-        self.0.append_message(b"r1", r1);
-        self.0.append_message(b"r2", r2);
+        self.0.append_message(domain::LABEL_R1, r1);
+        self.0.append_message(domain::LABEL_R2, r2);
     }
 
     /// Derives the challenge scalar via 64-byte wide reduction (uniform over the scalar field).
     pub fn challenge_scalar(&mut self) -> Scalar {
         let mut buf = [0u8; WIDE_REDUCTION_BYTES];
-        self.0.challenge_bytes(CHALLENGE_DST, &mut buf);
+        self.0.challenge_bytes(domain::CHALLENGE_DST, &mut buf);
         Scalar::new(DalekScalar::from_bytes_mod_order_wide(&buf))
     }
 }

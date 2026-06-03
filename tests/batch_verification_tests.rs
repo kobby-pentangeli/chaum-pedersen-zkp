@@ -54,7 +54,7 @@ fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<
     let proof = prover
         .prove_with_transcript(&mut rng, &mut transcript)
         .unwrap();
-    let proof_bytes = proof.to_bytes().unwrap();
+    let proof_bytes = proof.to_bytes().to_vec();
 
     (y1, y2, proof_bytes)
 }
@@ -62,7 +62,7 @@ fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<
 fn derive_scalar_from_password(password: &str, user_id: &str) -> chaum_pedersen::Scalar {
     use sha2::{Digest, Sha256, Sha512};
 
-    let salt_input = format!("chaum-pedersen-v1.0.0-{}", user_id);
+    let salt_input = format!("{}/{}", chaum_pedersen::CIPHERSUITE, user_id);
     let salt_hash = Sha256::digest(salt_input.as_bytes());
     let salt = &salt_hash[0..16];
 

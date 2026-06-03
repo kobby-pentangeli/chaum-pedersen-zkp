@@ -6,7 +6,9 @@ use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
     VerificationRequest,
 };
-use chaum_pedersen::{OsRng, Parameters, Prover, Scalar, Statement, Transcript, Witness};
+use chaum_pedersen::{
+    CIPHERSUITE, OsRng, Parameters, Prover, Scalar, Statement, Transcript, Witness,
+};
 use clap::Parser;
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
@@ -175,7 +177,7 @@ fn display_prompt(server: &str) {
 }
 
 fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
-    let salt_input = format!("chaum-pedersen-v1.0.0-{}", user_id);
+    let salt_input = format!("{CIPHERSUITE}/{user_id}");
     let salt_hash = Sha256::digest(salt_input.as_bytes());
     let salt = &salt_hash[0..16];
 
@@ -258,7 +260,7 @@ async fn do_login(
     transcript.append_context(&challenge_resp.challenge_id);
 
     let proof = prover.prove_with_transcript(&mut rng, &mut transcript)?;
-    let proof_bytes = proof.to_bytes()?;
+    let proof_bytes = proof.to_bytes().to_vec();
 
     let verify_req = Request::new(VerificationRequest {
         user_id: user.to_string(),
@@ -368,7 +370,7 @@ async fn do_batch_login(
         transcript.append_context(&challenge_resp.challenge_id);
 
         let proof = prover.prove_with_transcript(&mut rng, &mut transcript)?;
-        proofs.push(proof.to_bytes()?);
+        proofs.push(proof.to_bytes().to_vec());
     }
 
     let request = Request::new(BatchVerificationRequest {

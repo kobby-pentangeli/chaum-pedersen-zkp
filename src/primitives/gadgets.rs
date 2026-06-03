@@ -5,7 +5,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use super::{Element, Scalar};
 use crate::{Error, Result};
 
-const PROTOCOL_VERSION: u8 = 1;
+const PROTOCOL_VERSION: u8 = 2;
 
 /// Public parameters: the two group generators `g`, `h` for the discrete-log-equality proof.
 ///
@@ -199,6 +199,10 @@ pub struct Proof {
 }
 
 impl Proof {
+    /// Wire size of a serialized proof: a 1-byte version tag followed by the fixed 32-byte
+    /// encodings of `r1`, `r2`, and `s`.
+    pub const SIZE: usize = 1 + 3 * 32;
+
     /// Assembles a proof from a commitment and response (usually via [`Prover`](crate::Prover)).
     pub fn new(commitment: Commitment, response: Response) -> Self {
         Self {
@@ -220,122 +224,42 @@ impl Proof {
         &self.response
     }
 
-    /// Serializes the proof to its versioned byte encoding.
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let r1_bytes = self.commitment.r1().to_bytes();
-        let r2_bytes = self.commitment.r2().to_bytes();
-        let s_bytes = self.response.s().to_bytes();
-
-        let mut result = Vec::new();
-        result.push(self.version);
-
-        result.extend_from_slice(&(r1_bytes.len() as u32).to_be_bytes());
-        result.extend_from_slice(&r1_bytes);
-
-        result.extend_from_slice(&(r2_bytes.len() as u32).to_be_bytes());
-        result.extend_from_slice(&r2_bytes);
-
-        result.extend_from_slice(&(s_bytes.len() as u32).to_be_bytes());
-        result.extend_from_slice(&s_bytes);
-
-        Ok(result)
+    /// Serializes the proof to its fixed [`Self::SIZE`]-byte encoding `version ‖ r1 ‖ r2 ‖ s`.
+    pub fn to_bytes(&self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
+        bytes[0] = self.version;
+        bytes[1..33].copy_from_slice(&self.commitment.r1().to_bytes());
+        bytes[33..65].copy_from_slice(&self.commitment.r2().to_bytes());
+        bytes[65..97].copy_from_slice(&self.response.s().to_bytes());
+        bytes
     }
 
-    /// Deserializes and validates a proof from its byte encoding.
+    /// Deserializes and validates a proof from its fixed [`Self::SIZE`]-byte encoding.
+    ///
+    /// Rejects any input that is not exactly [`Self::SIZE`] bytes, carries the wrong version, fails
+    /// to decode as canonical group/scalar values, or violates the soundness invariants (identity
+    /// `r1`/`r2`, zero `s`).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        const MAX_ELEMENT_SIZE: usize = 4096;
-        const MAX_SCALAR_SIZE: usize = 512;
-        const MIN_PROOF_SIZE: usize = 1 + 4 + 1 + 4 + 1 + 4 + 1;
+        let bytes: &[u8; Self::SIZE] = bytes.try_into().map_err(|_| Error::Deserialization)?;
 
-        if bytes.len() < MIN_PROOF_SIZE {
+        if bytes[0] != PROTOCOL_VERSION {
             return Err(Error::Deserialization);
         }
 
-        let version = bytes[0];
-        if version != PROTOCOL_VERSION {
-            return Err(Error::Deserialization);
-        }
+        let commitment = Commitment::new(
+            Element::from_bytes(&bytes[1..33])?,
+            Element::from_bytes(&bytes[33..65])?,
+        );
+        commitment.validate()?;
 
-        let mut pos = 1;
-
-        if pos + 4 > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let r1_len = u32::from_be_bytes(
-            bytes[pos..pos + 4]
-                .try_into()
-                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
-        ) as usize;
-        pos += 4;
-
-        if r1_len == 0 || r1_len > MAX_ELEMENT_SIZE {
-            return Err(Error::Deserialization);
-        }
-
-        if pos + r1_len > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let r1 = Element::from_bytes(&bytes[pos..pos + r1_len])?;
-        pos += r1_len;
-
-        if pos + 4 > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let r2_len = u32::from_be_bytes(
-            bytes[pos..pos + 4]
-                .try_into()
-                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
-        ) as usize;
-        pos += 4;
-
-        if r2_len == 0 || r2_len > MAX_ELEMENT_SIZE {
-            return Err(Error::Deserialization);
-        }
-
-        if pos + r2_len > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let r2 = Element::from_bytes(&bytes[pos..pos + r2_len])?;
-        pos += r2_len;
-
-        if pos + 4 > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let s_len = u32::from_be_bytes(
-            bytes[pos..pos + 4]
-                .try_into()
-                .unwrap_or_else(|_| unreachable!("Slice is exactly 4 bytes")),
-        ) as usize;
-        pos += 4;
-
-        if s_len == 0 || s_len > MAX_SCALAR_SIZE {
-            return Err(Error::Deserialization);
-        }
-
-        if pos + s_len > bytes.len() {
-            return Err(Error::Deserialization);
-        }
-        let s = Scalar::from_bytes(&bytes[pos..pos + s_len])?;
-        pos += s_len;
-
-        if pos != bytes.len() {
-            return Err(Error::Deserialization);
-        }
-
-        r1.validate()?;
-        r2.validate()?;
-
-        if r1.is_identity() || r2.is_identity() {
-            return Err(Error::IdentityElement);
-        }
-
+        let s = Scalar::from_bytes(&bytes[65..97])?;
         if s.is_zero() {
             return Err(Error::Deserialization);
         }
 
         Ok(Proof {
-            version,
-            commitment: Commitment::new(r1, r2),
+            version: bytes[0],
+            commitment,
             response: Response::new(s),
         })
     }
@@ -392,9 +316,10 @@ mod tests {
         let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
-        let bytes = proof.to_bytes().unwrap();
+        let bytes = proof.to_bytes();
         let deserialized = Proof::from_bytes(&bytes).unwrap();
 
+        assert_eq!(bytes.len(), Proof::SIZE);
         assert_eq!(deserialized.version(), PROTOCOL_VERSION);
     }
 
@@ -405,34 +330,23 @@ mod tests {
     }
 
     #[test]
-    fn proof_from_bytes_rejects_truncated() {
-        let result = Proof::from_bytes(&[1, 0, 0, 0]);
-        assert!(result.is_err());
+    fn proof_from_bytes_rejects_wrong_length() {
+        assert!(Proof::from_bytes(&[PROTOCOL_VERSION; Proof::SIZE - 1]).is_err());
+        assert!(Proof::from_bytes(&[PROTOCOL_VERSION; Proof::SIZE + 1]).is_err());
     }
 
     #[test]
     fn proof_from_bytes_rejects_wrong_version() {
-        let mut bytes = vec![99];
-        bytes.extend_from_slice(&[0, 0, 0, 32]);
-        bytes.resize(100, 0);
-        let result = Proof::from_bytes(&bytes);
-        assert!(result.is_err());
-    }
+        let mut rng = OsRng;
+        let r1 = &Element::generator_g() * &Scalar::random(&mut rng);
+        let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
+        let commitment = Commitment::new(r1, r2);
+        let response = Response::new(Scalar::random(&mut rng));
+        let proof = Proof::new(commitment, response);
 
-    #[test]
-    fn proof_from_bytes_rejects_zero_length_fields() {
-        let mut bytes = vec![PROTOCOL_VERSION];
-        bytes.extend_from_slice(&[0, 0, 0, 0]);
-        let result = Proof::from_bytes(&bytes);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn proof_from_bytes_rejects_excessive_length() {
-        let mut bytes = vec![PROTOCOL_VERSION];
-        bytes.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
-        let result = Proof::from_bytes(&bytes);
-        assert!(result.is_err());
+        let mut bytes = proof.to_bytes();
+        bytes[0] = PROTOCOL_VERSION.wrapping_add(1);
+        assert!(Proof::from_bytes(&bytes).is_err());
     }
 
     #[test]
@@ -444,7 +358,7 @@ mod tests {
         let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
-        let mut bytes = proof.to_bytes().unwrap();
+        let mut bytes = proof.to_bytes().to_vec();
         bytes.push(0xFF);
 
         let result = Proof::from_bytes(&bytes);
@@ -461,7 +375,7 @@ mod tests {
         let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
-        let bytes = proof.to_bytes().unwrap();
+        let bytes = proof.to_bytes();
         let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }
@@ -477,7 +391,7 @@ mod tests {
         let response = Response::new(zero_scalar);
         let proof = Proof::new(commitment, response);
 
-        let bytes = proof.to_bytes().unwrap();
+        let bytes = proof.to_bytes();
         let result = Proof::from_bytes(&bytes);
         assert!(result.is_err());
     }

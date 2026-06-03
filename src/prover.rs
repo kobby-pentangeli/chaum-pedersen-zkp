@@ -138,7 +138,7 @@ mod tests {
         let prover = Prover::new(params, witness);
         let proof = prover.prove(&mut rng).unwrap();
 
-        assert_eq!(proof.version(), 1);
+        assert_eq!(proof.version(), 2);
     }
 
     #[test]
