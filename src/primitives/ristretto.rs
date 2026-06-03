@@ -2,6 +2,8 @@
 //!
 //! Provides fast, prime-order elliptic curve operations based on Curve25519.
 
+use std::sync::LazyLock;
+
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar as DalekScalar;
@@ -25,6 +27,14 @@ const WIDE_REDUCTION_BYTES: usize = 64;
 /// This ensures `h` is deterministically derived and cryptographically independent
 /// from the base generator `g`. Changing this value produces a different generator.
 const GENERATOR_H_DST: &[u8] = b"chaum-pedersen-zkp-v1.0.0-generator-h";
+
+// Deriving `h` runs a SHA-512 hash-to-group (Elligator) pass; the result is a constant, so it is
+// computed once on first use and shared thereafter rather than recomputed on every call.
+static GENERATOR_H: LazyLock<RistrettoPoint> = LazyLock::new(|| {
+    let mut hasher = Sha512::new();
+    hasher.update(GENERATOR_H_DST);
+    RistrettoPoint::from_uniform_bytes(&hasher.finalize().into())
+});
 
 /// Ristretto255 group implementation providing fast, prime-order elliptic curve operations.
 ///
@@ -60,6 +70,36 @@ impl Scalar {
     pub fn inner(&self) -> &DalekScalar {
         &self.0
     }
+
+    /// Samples a uniform scalar by wide reduction of 64 CSPRNG bytes.
+    pub fn random<R: CryptoRngCore>(rng: &mut R) -> Self {
+        let mut bytes = [0u8; WIDE_REDUCTION_BYTES];
+        rng.fill_bytes(&mut bytes);
+        Self(DalekScalar::from_bytes_mod_order_wide(&bytes))
+    }
+
+    /// Decodes a 32-byte little-endian scalar; rejects mis-sized input.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let arr: [u8; RISTRETTO_BYTES] = bytes.try_into().map_err(|_| Error::InvalidEncoding)?;
+        Option::from(DalekScalar::from_canonical_bytes(arr))
+            .map(Self)
+            .ok_or(Error::InvalidEncoding)
+    }
+
+    /// 32-byte little-endian encoding.
+    pub fn to_bytes(&self) -> [u8; RISTRETTO_BYTES] {
+        self.0.to_bytes()
+    }
+
+    /// Multiplicative inverse, or `None` for the zero scalar.
+    pub fn invert(&self) -> Option<Self> {
+        (!self.is_zero()).then(|| Self(self.0.invert()))
+    }
+
+    /// Whether this is the additive-identity (zero) scalar.
+    pub fn is_zero(&self) -> bool {
+        self.0 == DalekScalar::ZERO
+    }
 }
 
 impl Element {
@@ -72,138 +112,241 @@ impl Element {
     pub fn inner(&self) -> &RistrettoPoint {
         &self.0
     }
+
+    /// First protocol generator `g`, the Ristretto255 basepoint.
+    pub fn generator_g() -> Self {
+        Self(RISTRETTO_BASEPOINT_TABLE.basepoint())
+    }
+
+    /// Second protocol generator `h`, hashed from a domain-separated tag so its discrete log to
+    /// `g` is unknown. Memoized after first use.
+    pub fn generator_h() -> Self {
+        Self(*GENERATOR_H)
+    }
+
+    /// The group identity element.
+    pub fn identity() -> Self {
+        Self(RistrettoPoint::identity())
+    }
+
+    /// Whether this is the identity element.
+    pub fn is_identity(&self) -> bool {
+        self.0.is_identity()
+    }
+
+    /// Decodes a compressed element; rejects mis-sized input.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let arr: [u8; RISTRETTO_BYTES] = bytes.try_into().map_err(|_| Error::InvalidEncoding)?;
+        CompressedRistretto(arr)
+            .decompress()
+            .map(Self)
+            .ok_or(Error::InvalidEncoding)
+    }
+
+    /// 32-byte compressed encoding.
+    pub fn to_bytes(&self) -> [u8; RISTRETTO_BYTES] {
+        self.0.compress().to_bytes()
+    }
+
+    /// Confirms the element is a group encoding (rejects malleable points).
+    pub fn validate(&self) -> Result<()> {
+        if self.0.is_identity() {
+            return Ok(());
+        }
+
+        match self.0.compress().decompress() {
+            Some(point) if point == self.0 => Ok(()),
+            _ => Err(Error::InvalidEncoding),
+        }
+    }
 }
+
+// `Scalar` and `Element` wrap Copy inner types but are not themselves Copy (a `Scalar` zeroizes on
+// drop), so every operator needs the four owned/borrowed permutations: the borrowed-borrowed form
+// is canonical and the rest delegate to it.
+macro_rules! impl_binop {
+    ($imp:ident, $method:ident, $lhs:ident, $rhs:ident, $out:ident, $op:tt) => {
+        impl<'a, 'b> core::ops::$imp<&'b $rhs> for &'a $lhs {
+            type Output = $out;
+            #[inline]
+            fn $method(self, rhs: &'b $rhs) -> $out {
+                $out(self.0 $op rhs.0)
+            }
+        }
+
+        impl<'b> core::ops::$imp<&'b $rhs> for $lhs {
+            type Output = $out;
+            #[inline]
+            fn $method(self, rhs: &'b $rhs) -> $out {
+                &self $op rhs
+            }
+        }
+
+        impl<'a> core::ops::$imp<$rhs> for &'a $lhs {
+            type Output = $out;
+            #[inline]
+            fn $method(self, rhs: $rhs) -> $out {
+                self $op &rhs
+            }
+        }
+
+        impl core::ops::$imp<$rhs> for $lhs {
+            type Output = $out;
+            #[inline]
+            fn $method(self, rhs: $rhs) -> $out {
+                &self $op &rhs
+            }
+        }
+    };
+}
+
+macro_rules! impl_binop_assign {
+    ($imp:ident, $method:ident, $lhs:ident, $rhs:ident, $op:tt) => {
+        impl<'b> core::ops::$imp<&'b $rhs> for $lhs {
+            #[inline]
+            fn $method(&mut self, rhs: &'b $rhs) {
+                self.0 $op rhs.0;
+            }
+        }
+
+        impl core::ops::$imp<$rhs> for $lhs {
+            #[inline]
+            fn $method(&mut self, rhs: $rhs) {
+                self.0 $op rhs.0;
+            }
+        }
+    };
+}
+
+macro_rules! impl_neg {
+    ($t:ident) => {
+        impl core::ops::Neg for $t {
+            type Output = $t;
+            #[inline]
+            fn neg(self) -> $t {
+                $t(-self.0)
+            }
+        }
+
+        impl<'a> core::ops::Neg for &'a $t {
+            type Output = $t;
+            #[inline]
+            fn neg(self) -> $t {
+                $t(-self.0)
+            }
+        }
+    };
+}
+
+impl_binop!(Add, add, Scalar, Scalar, Scalar, +);
+impl_binop!(Sub, sub, Scalar, Scalar, Scalar, -);
+impl_binop!(Mul, mul, Scalar, Scalar, Scalar, *);
+impl_binop_assign!(AddAssign, add_assign, Scalar, Scalar, +=);
+impl_binop_assign!(SubAssign, sub_assign, Scalar, Scalar, -=);
+impl_binop_assign!(MulAssign, mul_assign, Scalar, Scalar, *=);
+impl_neg!(Scalar);
+
+impl_binop!(Add, add, Element, Element, Element, +);
+impl_binop!(Sub, sub, Element, Element, Element, -);
+impl_binop!(Mul, mul, Element, Scalar, Element, *);
+impl_binop_assign!(AddAssign, add_assign, Element, Element, +=);
+impl_binop_assign!(SubAssign, sub_assign, Element, Element, -=);
+impl_binop_assign!(MulAssign, mul_assign, Element, Scalar, *=);
+impl_neg!(Element);
 
 impl Ristretto255 {
     /// Returns the first generator `g` for Chaum-Pedersen protocol.
     pub fn generator_g() -> Element {
-        Element(RISTRETTO_BASEPOINT_TABLE.basepoint())
+        Element::generator_g()
     }
 
     /// Returns the second generator `h` for Chaum-Pedersen protocol.
     ///
     /// This generator is independent of `g` (no known discrete log relationship).
     pub fn generator_h() -> Element {
-        let mut hasher = Sha512::new();
-        hasher.update(GENERATOR_H_DST);
-        let hash = hasher.finalize();
-        Element(RistrettoPoint::from_uniform_bytes(&hash.into()))
+        Element::generator_h()
     }
 
     /// Deserializes a scalar from bytes.
     pub fn scalar_from_bytes(bytes: &[u8]) -> Result<Scalar> {
-        if bytes.len() != RISTRETTO_BYTES {
-            return Err(Error::InvalidEncoding);
-        }
-
-        let mut arr = [0u8; RISTRETTO_BYTES];
-        arr.copy_from_slice(bytes);
-
-        match DalekScalar::from_canonical_bytes(arr).into() {
-            Some(scalar) => Ok(Scalar(scalar)),
-            None => Err(Error::InvalidEncoding),
-        }
+        Scalar::from_bytes(bytes)
     }
 
     /// Serializes a scalar to bytes.
     pub fn scalar_to_bytes(scalar: &Scalar) -> Vec<u8> {
-        scalar.0.to_bytes().to_vec()
+        scalar.to_bytes().to_vec()
     }
 
     /// Deserializes a group element from bytes.
     pub fn element_from_bytes(bytes: &[u8]) -> Result<Element> {
-        if bytes.len() != RISTRETTO_BYTES {
-            return Err(Error::InvalidEncoding);
-        }
-
-        let mut arr = [0u8; RISTRETTO_BYTES];
-        arr.copy_from_slice(bytes);
-
-        match CompressedRistretto(arr).decompress() {
-            Some(point) => Ok(Element(point)),
-            None => Err(Error::InvalidEncoding),
-        }
+        Element::from_bytes(bytes)
     }
 
     /// Serializes a group element to bytes.
     pub fn element_to_bytes(element: &Element) -> Vec<u8> {
-        element.0.compress().to_bytes().to_vec()
+        element.to_bytes().to_vec()
     }
 
     /// Generates a random scalar using the provided RNG.
     pub fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Scalar {
-        let mut bytes = [0u8; WIDE_REDUCTION_BYTES];
-        rng.fill_bytes(&mut bytes);
-        Scalar(DalekScalar::from_bytes_mod_order_wide(&bytes))
+        Scalar::random(rng)
     }
 
     /// Performs scalar multiplication: `element * scalar`.
     pub fn scalar_mul(element: &Element, scalar: &Scalar) -> Element {
-        Element(element.0 * scalar.0)
+        element * scalar
     }
 
     /// Multiplies two group elements: `a * b` (group operation is addition).
     pub fn element_mul(a: &Element, b: &Element) -> Element {
-        Element(a.0 + b.0)
+        a + b
     }
 
     /// Returns the identity element of the group.
     pub fn identity() -> Element {
-        Element(RistrettoPoint::identity())
+        Element::identity()
     }
 
     /// Checks if an element is the identity.
     pub fn is_identity(element: &Element) -> bool {
-        element.0 == RistrettoPoint::identity()
+        element.is_identity()
     }
 
     /// Validates that an element is in the correct subgroup.
     pub fn validate_element(element: &Element) -> Result<()> {
-        if element.0.is_identity() {
-            return Ok(());
-        }
-
-        let compressed = element.0.compress();
-        match compressed.decompress() {
-            Some(point) if point == element.0 => Ok(()),
-            _ => Err(Error::InvalidEncoding),
-        }
+        element.validate()
     }
 
     /// Adds two scalars: `a + b`.
     pub fn scalar_add(a: &Scalar, b: &Scalar) -> Scalar {
-        Scalar(a.0 + b.0)
+        a + b
     }
 
     /// Subtracts two scalars: `a - b`.
     pub fn scalar_sub(a: &Scalar, b: &Scalar) -> Scalar {
-        Scalar(a.0 - b.0)
+        a - b
     }
 
     /// Multiplies two scalars: `a * b`.
     pub fn scalar_mul_scalar(a: &Scalar, b: &Scalar) -> Scalar {
-        Scalar(a.0 * b.0)
+        a * b
     }
 
     /// Negates a scalar: `-s`.
     pub fn scalar_negate(scalar: &Scalar) -> Scalar {
-        Scalar(-scalar.0)
+        -scalar
     }
 
     /// Computes the multiplicative inverse of a scalar.
     ///
     /// Returns `None` if the scalar is zero.
     pub fn scalar_invert(scalar: &Scalar) -> Option<Scalar> {
-        if Self::scalar_is_zero(scalar) {
-            None
-        } else {
-            Some(Scalar(scalar.0.invert()))
-        }
+        scalar.invert()
     }
 
     /// Checks if a scalar is zero.
     pub fn scalar_is_zero(scalar: &Scalar) -> bool {
-        scalar.0 == DalekScalar::ZERO
+        scalar.is_zero()
     }
 }
 
@@ -311,5 +454,96 @@ mod tests {
         let g_a_plus_b = Ristretto255::scalar_mul(&g, &a_plus_b);
 
         assert_eq!(ga_plus_gb, g_a_plus_b);
+    }
+
+    #[test]
+    fn scalar_operators_match_free_functions() {
+        let mut rng = SecureRng::new();
+        let a = Scalar::random(&mut rng);
+        let b = Scalar::random(&mut rng);
+
+        assert_eq!(&a + &b, Ristretto255::scalar_add(&a, &b));
+        assert_eq!(&a - &b, Ristretto255::scalar_sub(&a, &b));
+        assert_eq!(&a * &b, Ristretto255::scalar_mul_scalar(&a, &b));
+        assert_eq!(-&a, Ristretto255::scalar_negate(&a));
+    }
+
+    #[test]
+    fn scalar_ownership_and_assign_variants() {
+        let mut rng = SecureRng::new();
+        let a = Scalar::random(&mut rng);
+        let b = Scalar::random(&mut rng);
+        let expected = &a + &b;
+
+        assert_eq!(a.clone() + b.clone(), expected);
+        assert_eq!(a.clone() + &b, expected);
+        assert_eq!(&a + b.clone(), expected);
+
+        let mut acc = a.clone();
+        acc += &b;
+        assert_eq!(acc, expected);
+
+        let mut acc = a.clone();
+        acc += b.clone();
+        assert_eq!(acc, expected);
+    }
+
+    #[test]
+    fn element_operators_match_free_functions() {
+        let mut rng = SecureRng::new();
+        let g = Element::generator_g();
+        let s = Scalar::random(&mut rng);
+        let t = Scalar::random(&mut rng);
+
+        let gs = &g * &s;
+        let gt = &g * &t;
+
+        assert_eq!(gs, Ristretto255::scalar_mul(&g, &s));
+        assert_eq!(&gs + &gt, Ristretto255::element_mul(&gs, &gt));
+
+        // `Element * Scalar` is the group's scalar multiplication, so it distributes over scalar add.
+        assert_eq!(&g * &(&s + &t), &gs + &gt);
+        assert_eq!((&gs - &gt) + &gt, gs);
+    }
+
+    #[test]
+    fn scalar_bytes_roundtrip() {
+        let mut rng = SecureRng::new();
+        let s = Scalar::random(&mut rng);
+        let bytes = s.to_bytes();
+
+        assert_eq!(Scalar::from_bytes(&bytes).unwrap(), s);
+        assert!(Scalar::from_bytes(&bytes[..RISTRETTO_BYTES - 1]).is_err());
+    }
+
+    #[test]
+    fn element_bytes_roundtrip() {
+        let g = Element::generator_g();
+        let bytes = g.to_bytes();
+
+        assert_eq!(Element::from_bytes(&bytes).unwrap(), g);
+        assert!(Element::from_bytes(&bytes[..RISTRETTO_BYTES - 1]).is_err());
+    }
+
+    #[test]
+    fn generator_h_is_stable() {
+        assert_eq!(Element::generator_h(), Element::generator_h());
+        assert_ne!(Element::generator_h(), Element::generator_g());
+    }
+
+    #[test]
+    fn scalar_invert_and_zero() {
+        let mut rng = SecureRng::new();
+        let a = Scalar::random(&mut rng);
+
+        let product = &a * &a.invert().unwrap();
+        let mut one = [0u8; RISTRETTO_BYTES];
+        one[0] = 1;
+        assert_eq!(product.to_bytes(), one);
+
+        let zero = Scalar::from_bytes(&[0u8; RISTRETTO_BYTES]).unwrap();
+        assert!(zero.is_zero());
+        assert!(zero.invert().is_none());
+        assert!(!a.is_zero());
     }
 }
