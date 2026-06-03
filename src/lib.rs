@@ -62,7 +62,7 @@
 //! - `grpc`: Enable gRPC service definitions and implementations
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all)]
+#![warn(clippy::all)]
 
 pub mod error;
 pub mod primitives;
@@ -73,10 +73,12 @@ pub mod verifier;
 /// Generated protobuf types.
 #[allow(missing_docs)]
 pub mod proto {
-    include!("auth.rs");
+    include!(concat!(env!("OUT_DIR"), "/auth.rs"));
 }
 
 pub use error::Error;
+#[cfg(feature = "server")]
+pub use error::StateError;
 pub use primitives::{
     Commitment, Element, Parameters, Proof, Response, Ristretto255, Scalar, SecureRng, Statement,
     Transcript, Witness,

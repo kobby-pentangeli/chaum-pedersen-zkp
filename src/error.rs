@@ -1,17 +1,65 @@
-//! Error types for Chaum-Pedersen
+//! Error types for the Chaum-Pedersen protocol.
 
-/// Main error types for the library.
+/// Errors arising from the core protocol: parameter validation, scalar and
+/// group-element encoding, proof serialization, and verification.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Invalid group parameters were provided.
-    #[error("Invalid group parameters: {0}")]
-    InvalidParams(String),
+    #[error("proof verification failed")]
+    VerificationFailed,
 
-    /// A scalar value is invalid or out of range.
-    #[error("Invalid scalar: {0}")]
-    InvalidScalar(String),
+    #[error("group element is the identity")]
+    IdentityElement,
 
-    /// A group element is invalid or not in the correct subgroup.
-    #[error("Invalid group element: {0}")]
-    InvalidGroupElement(String),
+    #[error("invalid scalar or group-element encoding")]
+    InvalidEncoding,
+
+    #[error("malformed proof encoding")]
+    Deserialization,
+
+    #[error("invalid protocol parameters")]
+    InvalidParameters,
+
+    #[error("batch contains no proofs")]
+    BatchEmpty,
+
+    #[error("batch size {actual} exceeds the maximum of {max}")]
+    BatchSizeExceeded {
+        /// Maximum number of proofs a single batch may hold.
+        max: usize,
+        /// Number of proofs the batch would have held.
+        actual: usize,
+    },
+}
+
+/// Errors from the in-memory server state: the user registry, challenge tracking,
+/// and session management.
+#[cfg(feature = "server")]
+#[derive(Debug, thiserror::Error)]
+pub enum StateError {
+    #[error("user already registered")]
+    UserAlreadyExists,
+
+    #[error("user not found")]
+    UserNotFound,
+
+    #[error("invalid or expired challenge")]
+    ChallengeNotFound,
+
+    #[error("too many active challenges for user")]
+    TooManyChallenges,
+
+    #[error("session not found")]
+    SessionNotFound,
+
+    #[error("session expired")]
+    SessionExpired,
+
+    #[error("too many active sessions for user")]
+    TooManySessions,
+
+    #[error("server capacity reached for {resource}")]
+    CapacityExceeded {
+        /// The exhausted resource: `"users"`, `"challenges"`, or `"sessions"`.
+        resource: &'static str,
+    },
 }

@@ -164,6 +164,7 @@ impl AuthService for AuthServiceImpl {
             let y1_bytes = &req.y1_values[i];
             let y2_bytes = &req.y2_values[i];
 
+            #[allow(clippy::result_large_err)]
             let registration_result: Result<(), Status> = (|| {
                 Self::validate_user_id(user_id)?;
 
@@ -442,6 +443,7 @@ impl AuthService for AuthServiceImpl {
             let challenge_id = &req.challenge_ids[i];
             let proof_bytes = &req.proofs[i];
 
+            #[allow(clippy::result_large_err)]
             let validation_result: Result<(), Status> = (|| {
                 Self::validate_user_id(user_id)?;
 

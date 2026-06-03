@@ -162,9 +162,7 @@ impl Verifier {
         let check2 = lhs2 == rhs2;
 
         if !check1 || !check2 {
-            return Err(Error::InvalidParams(
-                "Proof verification failed".to_string(),
-            ));
+            return Err(Error::VerificationFailed);
         }
 
         Ok(())

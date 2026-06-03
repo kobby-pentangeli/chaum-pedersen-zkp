@@ -93,11 +93,7 @@ impl Ristretto255 {
     /// Deserializes a scalar from bytes.
     pub fn scalar_from_bytes(bytes: &[u8]) -> Result<Scalar> {
         if bytes.len() != RISTRETTO_BYTES {
-            return Err(Error::InvalidScalar(format!(
-                "Expected {} bytes, got {}",
-                RISTRETTO_BYTES,
-                bytes.len()
-            )));
+            return Err(Error::InvalidEncoding);
         }
 
         let mut arr = [0u8; RISTRETTO_BYTES];
@@ -105,9 +101,7 @@ impl Ristretto255 {
 
         match DalekScalar::from_canonical_bytes(arr).into() {
             Some(scalar) => Ok(Scalar(scalar)),
-            None => Err(Error::InvalidScalar(
-                "Bytes do not represent a valid scalar".to_string(),
-            )),
+            None => Err(Error::InvalidEncoding),
         }
     }
 
@@ -119,11 +113,7 @@ impl Ristretto255 {
     /// Deserializes a group element from bytes.
     pub fn element_from_bytes(bytes: &[u8]) -> Result<Element> {
         if bytes.len() != RISTRETTO_BYTES {
-            return Err(Error::InvalidGroupElement(format!(
-                "Expected {} bytes, got {}",
-                RISTRETTO_BYTES,
-                bytes.len()
-            )));
+            return Err(Error::InvalidEncoding);
         }
 
         let mut arr = [0u8; RISTRETTO_BYTES];
@@ -131,9 +121,7 @@ impl Ristretto255 {
 
         match CompressedRistretto(arr).decompress() {
             Some(point) => Ok(Element(point)),
-            None => Err(Error::InvalidGroupElement(
-                "Bytes do not represent a valid Ristretto point".to_string(),
-            )),
+            None => Err(Error::InvalidEncoding),
         }
     }
 
@@ -178,9 +166,7 @@ impl Ristretto255 {
         let compressed = element.0.compress();
         match compressed.decompress() {
             Some(point) if point == element.0 => Ok(()),
-            _ => Err(Error::InvalidGroupElement(
-                "Element failed recompression validation".to_string(),
-            )),
+            _ => Err(Error::InvalidEncoding),
         }
     }
 

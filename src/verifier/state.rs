@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::RwLock;
 
-use crate::{Error, Result, Statement};
+use crate::Statement;
+use crate::error::StateError;
 
 const CHALLENGE_EXPIRY_SECONDS: u64 = 300;
 const MAX_CHALLENGES_PER_USER: usize = 3;
@@ -133,21 +134,15 @@ impl ServerState {
     }
 
     /// Registers a new user with the provided data.
-    pub async fn register_user(&self, user_data: UserData) -> Result<()> {
+    pub async fn register_user(&self, user_data: UserData) -> Result<(), StateError> {
         let mut users = self.users.write().await;
 
         if users.len() >= MAX_TOTAL_USERS {
-            return Err(Error::InvalidParams(format!(
-                "Server has reached maximum user capacity ({})",
-                MAX_TOTAL_USERS
-            )));
+            return Err(StateError::CapacityExceeded { resource: "users" });
         }
 
         if users.contains_key(&user_data.user_id) {
-            return Err(Error::InvalidParams(format!(
-                "User '{}' already registered",
-                user_data.user_id
-            )));
+            return Err(StateError::UserAlreadyExists);
         }
 
         users.insert(user_data.user_id.clone(), user_data);
@@ -161,28 +156,29 @@ impl ServerState {
     }
 
     /// Creates a new challenge for the specified user.
-    pub async fn create_challenge(&self, user_id: &str, challenge_id: Vec<u8>) -> Result<u64> {
+    pub async fn create_challenge(
+        &self,
+        user_id: &str,
+        challenge_id: Vec<u8>,
+    ) -> Result<u64, StateError> {
         let users = self.users.read().await;
         let mut user_challenges = self.user_challenges.write().await;
         let mut all_challenges = self.challenges.write().await;
 
         if all_challenges.len() >= MAX_TOTAL_CHALLENGES {
-            return Err(Error::InvalidParams(format!(
-                "Server has reached maximum challenge capacity ({})",
-                MAX_TOTAL_CHALLENGES
-            )));
+            return Err(StateError::CapacityExceeded {
+                resource: "challenges",
+            });
         }
 
         if !users.contains_key(user_id) {
-            return Err(Error::InvalidParams(format!("User '{user_id}' not found")));
+            return Err(StateError::UserNotFound);
         }
 
         let challenges = user_challenges.entry(user_id.to_string()).or_default();
 
         if challenges.len() >= MAX_CHALLENGES_PER_USER {
-            return Err(Error::InvalidParams(format!(
-                "Too many active challenges for user '{user_id}'"
-            )));
+            return Err(StateError::TooManyChallenges);
         }
 
         let challenge_data = ChallengeData::new(challenge_id.clone(), user_id.to_string());
@@ -201,13 +197,16 @@ impl ServerState {
     }
 
     /// Consumes a challenge, removing it from active challenges.
-    pub async fn consume_challenge(&self, challenge_id: &[u8]) -> Result<ChallengeData> {
+    pub async fn consume_challenge(
+        &self,
+        challenge_id: &[u8],
+    ) -> Result<ChallengeData, StateError> {
         let mut challenges = self.challenges.write().await;
         let mut user_challenges = self.user_challenges.write().await;
 
         let challenge_data = challenges
             .get(challenge_id)
-            .ok_or_else(|| Error::InvalidParams("Invalid or expired challenge".to_string()))?
+            .ok_or(StateError::ChallengeNotFound)?
             .clone();
 
         if challenge_data.is_expired() {
@@ -215,9 +214,7 @@ impl ServerState {
             if let Some(user_challs) = user_challenges.get_mut(&challenge_data.user_id) {
                 user_challs.retain(|id| id != challenge_id);
             }
-            return Err(Error::InvalidParams(
-                "Invalid or expired challenge".to_string(),
-            ));
+            return Err(StateError::ChallengeNotFound);
         }
 
         challenges.remove(challenge_id);
@@ -249,23 +246,19 @@ impl ServerState {
     }
 
     /// Creates a new session for the specified user.
-    pub async fn create_session(&self, token: String, user_id: String) -> Result<()> {
+    pub async fn create_session(&self, token: String, user_id: String) -> Result<(), StateError> {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
 
         if sessions.len() >= MAX_TOTAL_SESSIONS {
-            return Err(Error::InvalidParams(format!(
-                "Server has reached maximum session capacity ({})",
-                MAX_TOTAL_SESSIONS
-            )));
+            return Err(StateError::CapacityExceeded {
+                resource: "sessions",
+            });
         }
 
         let user_session_tokens = user_sessions.entry(user_id.clone()).or_default();
         if user_session_tokens.len() >= MAX_SESSIONS_PER_USER {
-            return Err(Error::InvalidParams(format!(
-                "User '{}' has reached maximum session limit ({})",
-                user_id, MAX_SESSIONS_PER_USER
-            )));
+            return Err(StateError::TooManySessions);
         }
 
         let session_data = SessionData::new(token.clone(), user_id.clone());
@@ -276,28 +269,24 @@ impl ServerState {
     }
 
     /// Validates a session token.
-    pub async fn validate_session(&self, token: &str) -> Result<String> {
+    pub async fn validate_session(&self, token: &str) -> Result<String, StateError> {
         let sessions = self.sessions.read().await;
 
-        let session_data = sessions
-            .get(token)
-            .ok_or_else(|| Error::InvalidParams("Invalid session token".to_string()))?;
+        let session_data = sessions.get(token).ok_or(StateError::SessionNotFound)?;
 
         if session_data.is_expired() {
-            return Err(Error::InvalidParams("Session expired".to_string()));
+            return Err(StateError::SessionExpired);
         }
 
         Ok(session_data.user_id.clone())
     }
 
     /// Revokes a session token.
-    pub async fn revoke_session(&self, token: &str) -> Result<()> {
+    pub async fn revoke_session(&self, token: &str) -> Result<(), StateError> {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
 
-        let session_data = sessions
-            .remove(token)
-            .ok_or_else(|| Error::InvalidParams("Session not found".to_string()))?;
+        let session_data = sessions.remove(token).ok_or(StateError::SessionNotFound)?;
 
         if let Some(user_session_tokens) = user_sessions.get_mut(&session_data.user_id) {
             user_session_tokens.retain(|t| t != token);

@@ -149,10 +149,10 @@ impl BatchVerifier {
         context: Option<Vec<u8>>,
     ) -> Result<()> {
         if self.entries.len() >= MAX_BATCH_SIZE {
-            return Err(Error::InvalidParams(format!(
-                "Batch size limit exceeded (max {})",
-                MAX_BATCH_SIZE
-            )));
+            return Err(Error::BatchSizeExceeded {
+                max: MAX_BATCH_SIZE,
+                actual: self.entries.len().saturating_add(1),
+            });
         }
 
         statement.validate()?;
@@ -170,9 +170,7 @@ impl BatchVerifier {
     /// Verifies all proofs in the batch.
     pub fn verify<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Vec<Result<()>>> {
         if self.entries.is_empty() {
-            return Err(Error::InvalidParams(
-                "Cannot verify empty batch".to_string(),
-            ));
+            return Err(Error::BatchEmpty);
         }
 
         if self.entries.len() == 1 {
@@ -222,9 +220,7 @@ impl BatchVerifier {
         let rhs2 = Ristretto255::element_mul(r2, &y2_c);
 
         if lhs1 != rhs1 || lhs2 != rhs2 {
-            return Err(Error::InvalidParams(
-                "Proof verification failed".to_string(),
-            ));
+            return Err(Error::VerificationFailed);
         }
 
         Ok(())

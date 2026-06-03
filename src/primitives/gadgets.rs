@@ -78,22 +78,8 @@ impl Parameters {
         Ristretto255::validate_element(&g)?;
         Ristretto255::validate_element(&h)?;
 
-        if Ristretto255::is_identity(&g) {
-            return Err(Error::InvalidParams(
-                "Generator g cannot be identity".to_string(),
-            ));
-        }
-
-        if Ristretto255::is_identity(&h) {
-            return Err(Error::InvalidParams(
-                "Generator h cannot be identity".to_string(),
-            ));
-        }
-
-        if g == h {
-            return Err(Error::InvalidParams(
-                "Generators g and h must be different".to_string(),
-            ));
+        if Ristretto255::is_identity(&g) || Ristretto255::is_identity(&h) || g == h {
+            return Err(Error::InvalidParameters);
         }
 
         Ok(Self {
@@ -367,26 +353,18 @@ impl Proof {
         const MIN_PROOF_SIZE: usize = 1 + 4 + 1 + 4 + 1 + 4 + 1;
 
         if bytes.len() < MIN_PROOF_SIZE {
-            return Err(Error::InvalidParams(format!(
-                "Proof too small: {} bytes",
-                bytes.len()
-            )));
+            return Err(Error::Deserialization);
         }
 
         let version = bytes[0];
         if version != PROTOCOL_VERSION {
-            return Err(Error::InvalidParams(format!(
-                "Unsupported proof version: {}",
-                version
-            )));
+            return Err(Error::Deserialization);
         }
 
         let mut pos = 1;
 
         if pos + 4 > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: missing r1 length".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let r1_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
@@ -396,24 +374,17 @@ impl Proof {
         pos += 4;
 
         if r1_len == 0 || r1_len > MAX_ELEMENT_SIZE {
-            return Err(Error::InvalidParams(format!(
-                "Invalid r1 length: {}",
-                r1_len
-            )));
+            return Err(Error::Deserialization);
         }
 
         if pos + r1_len > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: incomplete r1 data".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let r1 = Ristretto255::element_from_bytes(&bytes[pos..pos + r1_len])?;
         pos += r1_len;
 
         if pos + 4 > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: missing r2 length".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let r2_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
@@ -423,24 +394,17 @@ impl Proof {
         pos += 4;
 
         if r2_len == 0 || r2_len > MAX_ELEMENT_SIZE {
-            return Err(Error::InvalidParams(format!(
-                "Invalid r2 length: {}",
-                r2_len
-            )));
+            return Err(Error::Deserialization);
         }
 
         if pos + r2_len > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: incomplete r2 data".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let r2 = Ristretto255::element_from_bytes(&bytes[pos..pos + r2_len])?;
         pos += r2_len;
 
         if pos + 4 > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: missing s length".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let s_len = u32::from_be_bytes(
             bytes[pos..pos + 4]
@@ -450,35 +414,28 @@ impl Proof {
         pos += 4;
 
         if s_len == 0 || s_len > MAX_SCALAR_SIZE {
-            return Err(Error::InvalidParams(format!("Invalid s length: {}", s_len)));
+            return Err(Error::Deserialization);
         }
 
         if pos + s_len > bytes.len() {
-            return Err(Error::InvalidParams(
-                "Truncated proof: incomplete s data".to_string(),
-            ));
+            return Err(Error::Deserialization);
         }
         let s = Ristretto255::scalar_from_bytes(&bytes[pos..pos + s_len])?;
         pos += s_len;
 
         if pos != bytes.len() {
-            return Err(Error::InvalidParams(format!(
-                "Proof has {} trailing bytes",
-                bytes.len() - pos
-            )));
+            return Err(Error::Deserialization);
         }
 
         Ristretto255::validate_element(&r1)?;
         Ristretto255::validate_element(&r2)?;
 
         if Ristretto255::is_identity(&r1) || Ristretto255::is_identity(&r2) {
-            return Err(Error::InvalidParams(
-                "Commitment contains identity element".to_string(),
-            ));
+            return Err(Error::IdentityElement);
         }
 
         if Ristretto255::scalar_is_zero(&s) {
-            return Err(Error::InvalidParams("Response scalar is zero".to_string()));
+            return Err(Error::Deserialization);
         }
 
         Ok(Proof {
