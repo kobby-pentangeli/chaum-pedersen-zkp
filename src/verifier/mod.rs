@@ -1,7 +1,7 @@
 //! Verifier (server) implementation:
 //! proof validation plus server state, config, and gRPC.
 
-use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
+use crate::{Error, Parameters, Proof, Result, Scalar, Statement, Transcript};
 
 pub mod batch;
 
@@ -52,16 +52,16 @@ impl Verifier {
         self.statement.validate()?;
 
         transcript.append_parameters(
-            &Ristretto255::element_to_bytes(self.params.generator_g()),
-            &Ristretto255::element_to_bytes(self.params.generator_h()),
+            &self.params.generator_g().to_bytes(),
+            &self.params.generator_h().to_bytes(),
         );
         transcript.append_statement(
-            &Ristretto255::element_to_bytes(self.statement.y1()),
-            &Ristretto255::element_to_bytes(self.statement.y2()),
+            &self.statement.y1().to_bytes(),
+            &self.statement.y2().to_bytes(),
         );
         transcript.append_commitment(
-            &Ristretto255::element_to_bytes(proof.commitment().r1()),
-            &Ristretto255::element_to_bytes(proof.commitment().r2()),
+            &proof.commitment().r1().to_bytes(),
+            &proof.commitment().r2().to_bytes(),
         );
 
         let challenge = transcript.challenge_scalar();
@@ -79,13 +79,13 @@ impl Verifier {
         let r2 = proof.commitment().r2();
         let s = proof.response().s();
 
-        let lhs1 = Ristretto255::scalar_mul(g, s);
-        let y1_c = Ristretto255::scalar_mul(y1, challenge);
-        let rhs1 = Ristretto255::element_mul(r1, &y1_c);
+        let lhs1 = g * s;
+        let y1_c = y1 * challenge;
+        let rhs1 = r1 + &y1_c;
 
-        let lhs2 = Ristretto255::scalar_mul(h, s);
-        let y2_c = Ristretto255::scalar_mul(y2, challenge);
-        let rhs2 = Ristretto255::element_mul(r2, &y2_c);
+        let lhs2 = h * s;
+        let y2_c = y2 * challenge;
+        let rhs2 = r2 + &y2_c;
 
         let check1 = lhs1 == rhs1;
         let check2 = lhs2 == rhs2;
@@ -101,13 +101,13 @@ impl Verifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Prover, SecureRng, Witness};
+    use crate::{OsRng, Prover, Witness};
 
     #[test]
     fn verifier_accepts_valid_proof() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params.clone(), witness);
@@ -120,15 +120,15 @@ mod tests {
 
     #[test]
     fn verifier_rejects_invalid_statement() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params.clone(), witness);
         let proof = prover.prove(&mut rng).unwrap();
 
-        let x2 = Ristretto255::random_scalar(&mut rng);
+        let x2 = Scalar::random(&mut rng);
         let wrong_witness = Witness::new(x2);
         let wrong_statement = Statement::from_witness(&params, &wrong_witness);
 
@@ -138,16 +138,16 @@ mod tests {
 
     #[test]
     fn interactive_verification() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
 
         let (commitment, nonce) = prover.commit(&mut rng);
-        let challenge = Ristretto255::random_scalar(&mut rng);
+        let challenge = Scalar::random(&mut rng);
         let response = prover.respond(&nonce, &challenge);
         let proof = Proof::new(commitment, response);
 

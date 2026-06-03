@@ -4,8 +4,7 @@ use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
-    Commitment, Parameters, Proof, Response, Result, Ristretto255, Scalar, Statement, Transcript,
-    Witness,
+    Commitment, Parameters, Proof, Response, Result, Scalar, Statement, Transcript, Witness,
 };
 
 /// Prover for the Chaum-Pedersen zero-knowledge protocol.
@@ -15,7 +14,7 @@ use crate::{
 ///
 /// # Security
 ///
-/// - Use [`SecureRng`](crate::SecureRng) for randomness.
+/// - Use [`OsRng`](crate::OsRng) for randomness.
 /// - Bind proofs to a context via the transcript to prevent replay.
 /// - Never reuse a witness across protocol instances.
 pub struct Prover {
@@ -64,17 +63,14 @@ impl Prover {
         let (commitment, nonce) = self.commit(rng);
 
         transcript.append_parameters(
-            &Ristretto255::element_to_bytes(self.params.generator_g()),
-            &Ristretto255::element_to_bytes(self.params.generator_h()),
+            &self.params.generator_g().to_bytes(),
+            &self.params.generator_h().to_bytes(),
         );
         transcript.append_statement(
-            &Ristretto255::element_to_bytes(self.statement.y1()),
-            &Ristretto255::element_to_bytes(self.statement.y2()),
+            &self.statement.y1().to_bytes(),
+            &self.statement.y2().to_bytes(),
         );
-        transcript.append_commitment(
-            &Ristretto255::element_to_bytes(commitment.r1()),
-            &Ristretto255::element_to_bytes(commitment.r2()),
-        );
+        transcript.append_commitment(&commitment.r1().to_bytes(), &commitment.r2().to_bytes());
 
         let challenge = transcript.challenge_scalar();
         let response = self.respond(&nonce, &challenge);
@@ -84,17 +80,17 @@ impl Prover {
 
     /// Interactive protocol, message 1: returns the commitment and the secret nonce to retain.
     pub fn commit<R: CryptoRngCore>(&self, rng: &mut R) -> (Commitment, Nonce) {
-        let k = Ristretto255::random_scalar(rng);
-        let r1 = Ristretto255::scalar_mul(self.params.generator_g(), &k);
-        let r2 = Ristretto255::scalar_mul(self.params.generator_h(), &k);
+        let k = Scalar::random(rng);
+        let r1 = self.params.generator_g() * &k;
+        let r2 = self.params.generator_h() * &k;
 
         (Commitment::new(r1, r2), Nonce::new(k))
     }
 
     /// Interactive protocol, message 3: combines the nonce and challenge into the response.
     pub fn respond(&self, nonce: &Nonce, challenge: &Scalar) -> Response {
-        let cx = Ristretto255::scalar_mul_scalar(challenge, self.witness.secret());
-        let s = Ristretto255::scalar_add(nonce.k(), &cx);
+        let cx = challenge * self.witness.secret();
+        let s = nonce.k() + &cx;
 
         Response::new(s)
     }
@@ -119,24 +115,24 @@ impl Nonce {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SecureRng;
+    use crate::{Element, OsRng};
 
     #[test]
     fn prover_creation() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params, witness);
-        assert!(prover.statement().y1() != &Ristretto255::identity());
+        assert!(prover.statement().y1() != &Element::identity());
     }
 
     #[test]
     fn prove_generates_valid_proof() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params, witness);
@@ -147,16 +143,16 @@ mod tests {
 
     #[test]
     fn interactive_protocol() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         let prover = Prover::new(params, witness);
         let (_commitment, nonce) = prover.commit(&mut rng);
-        let challenge = Ristretto255::random_scalar(&mut rng);
+        let challenge = Scalar::random(&mut rng);
         let response = prover.respond(&nonce, &challenge);
 
-        assert!(!Ristretto255::scalar_is_zero(response.s()));
+        assert!(!response.s().is_zero());
     }
 }

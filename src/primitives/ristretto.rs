@@ -36,13 +36,6 @@ static GENERATOR_H: LazyLock<RistrettoPoint> = LazyLock::new(|| {
     RistrettoPoint::from_uniform_bytes(&hasher.finalize().into())
 });
 
-/// Ristretto255 group implementation providing fast, prime-order elliptic curve operations.
-///
-/// This is the recommended group for the Chaum-Pedersen protocol, offering ~128-bit security
-/// with excellent performance characteristics.
-#[derive(Clone, Debug)]
-pub struct Ristretto255;
-
 /// Scalar in the Ristretto255 group.
 ///
 /// Scalars are automatically zeroized when dropped for security.
@@ -254,223 +247,67 @@ impl_binop_assign!(SubAssign, sub_assign, Element, Element, -=);
 impl_binop_assign!(MulAssign, mul_assign, Element, Scalar, *=);
 impl_neg!(Element);
 
-impl Ristretto255 {
-    /// Returns the first generator `g` for Chaum-Pedersen protocol.
-    pub fn generator_g() -> Element {
-        Element::generator_g()
-    }
-
-    /// Returns the second generator `h` for Chaum-Pedersen protocol.
-    ///
-    /// This generator is independent of `g` (no known discrete log relationship).
-    pub fn generator_h() -> Element {
-        Element::generator_h()
-    }
-
-    /// Deserializes a scalar from bytes.
-    pub fn scalar_from_bytes(bytes: &[u8]) -> Result<Scalar> {
-        Scalar::from_bytes(bytes)
-    }
-
-    /// Serializes a scalar to bytes.
-    pub fn scalar_to_bytes(scalar: &Scalar) -> Vec<u8> {
-        scalar.to_bytes().to_vec()
-    }
-
-    /// Deserializes a group element from bytes.
-    pub fn element_from_bytes(bytes: &[u8]) -> Result<Element> {
-        Element::from_bytes(bytes)
-    }
-
-    /// Serializes a group element to bytes.
-    pub fn element_to_bytes(element: &Element) -> Vec<u8> {
-        element.to_bytes().to_vec()
-    }
-
-    /// Generates a random scalar using the provided RNG.
-    pub fn random_scalar<R: CryptoRngCore>(rng: &mut R) -> Scalar {
-        Scalar::random(rng)
-    }
-
-    /// Performs scalar multiplication: `element * scalar`.
-    pub fn scalar_mul(element: &Element, scalar: &Scalar) -> Element {
-        element * scalar
-    }
-
-    /// Multiplies two group elements: `a * b` (group operation is addition).
-    pub fn element_mul(a: &Element, b: &Element) -> Element {
-        a + b
-    }
-
-    /// Returns the identity element of the group.
-    pub fn identity() -> Element {
-        Element::identity()
-    }
-
-    /// Checks if an element is the identity.
-    pub fn is_identity(element: &Element) -> bool {
-        element.is_identity()
-    }
-
-    /// Validates that an element is in the correct subgroup.
-    pub fn validate_element(element: &Element) -> Result<()> {
-        element.validate()
-    }
-
-    /// Adds two scalars: `a + b`.
-    pub fn scalar_add(a: &Scalar, b: &Scalar) -> Scalar {
-        a + b
-    }
-
-    /// Subtracts two scalars: `a - b`.
-    pub fn scalar_sub(a: &Scalar, b: &Scalar) -> Scalar {
-        a - b
-    }
-
-    /// Multiplies two scalars: `a * b`.
-    pub fn scalar_mul_scalar(a: &Scalar, b: &Scalar) -> Scalar {
-        a * b
-    }
-
-    /// Negates a scalar: `-s`.
-    pub fn scalar_negate(scalar: &Scalar) -> Scalar {
-        -scalar
-    }
-
-    /// Computes the multiplicative inverse of a scalar.
-    ///
-    /// Returns `None` if the scalar is zero.
-    pub fn scalar_invert(scalar: &Scalar) -> Option<Scalar> {
-        scalar.invert()
-    }
-
-    /// Checks if a scalar is zero.
-    pub fn scalar_is_zero(scalar: &Scalar) -> bool {
-        scalar.is_zero()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SecureRng;
+    use crate::OsRng;
 
     #[test]
-    fn generators() {
-        let g = Ristretto255::generator_g();
-        let h = Ristretto255::generator_h();
+    fn generators_are_distinct_and_nontrivial() {
+        let g = Element::generator_g();
+        let h = Element::generator_h();
         assert_ne!(g, h);
-        assert!(!Ristretto255::is_identity(&g));
-        assert!(!Ristretto255::is_identity(&h));
+        assert!(!g.is_identity());
+        assert!(!h.is_identity());
     }
 
     #[test]
-    fn scalar_add_sub() {
-        let mut rng = SecureRng::new();
-        let a = Ristretto255::random_scalar(&mut rng);
-        let b = Ristretto255::random_scalar(&mut rng);
-
-        let sum = Ristretto255::scalar_add(&a, &b);
-        let diff = Ristretto255::scalar_sub(&sum, &b);
-        assert_eq!(a, diff);
+    fn generator_h_is_stable() {
+        assert_eq!(Element::generator_h(), Element::generator_h());
     }
 
     #[test]
-    fn scalar_multiplication() {
-        let mut rng = SecureRng::new();
-        let a = Ristretto255::random_scalar(&mut rng);
-        let b = Ristretto255::random_scalar(&mut rng);
-
-        let ab = Ristretto255::scalar_mul_scalar(&a, &b);
-        let ba = Ristretto255::scalar_mul_scalar(&b, &a);
-        assert_eq!(ab, ba);
-    }
-
-    #[test]
-    fn scalar_inversion() {
-        let mut rng = SecureRng::new();
-        let a = Ristretto255::random_scalar(&mut rng);
-
-        let a_inv = Ristretto255::scalar_invert(&a).unwrap();
-        let product = Ristretto255::scalar_mul_scalar(&a, &a_inv);
-
-        let one_bytes = DalekScalar::ONE.to_bytes();
-        let product_bytes = product.0.to_bytes();
-        assert_eq!(one_bytes, product_bytes);
-    }
-
-    #[test]
-    fn scalar_serialization() {
-        let mut rng = SecureRng::new();
-        let scalar = Ristretto255::random_scalar(&mut rng);
-        let bytes = Ristretto255::scalar_to_bytes(&scalar);
-        let deserialized = Ristretto255::scalar_from_bytes(&bytes).unwrap();
-        assert_eq!(scalar, deserialized);
-    }
-
-    #[test]
-    fn element_operations() {
-        let g = Ristretto255::generator_g();
-        let mut rng = SecureRng::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-
-        let y = Ristretto255::scalar_mul(&g, &x);
-        Ristretto255::validate_element(&y).unwrap();
-    }
-
-    #[test]
-    fn element_serialization() {
-        let g = Ristretto255::generator_g();
-        let mut rng = SecureRng::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let y = Ristretto255::scalar_mul(&g, &x);
-
-        let bytes = Ristretto255::element_to_bytes(&y);
-        let deserialized = Ristretto255::element_from_bytes(&bytes).unwrap();
-        assert_eq!(y, deserialized);
-    }
-
-    #[test]
-    fn identity() {
-        let id = Ristretto255::identity();
-        assert!(Ristretto255::is_identity(&id));
-
-        let g = Ristretto255::generator_g();
-        assert!(!Ristretto255::is_identity(&g));
-    }
-
-    #[test]
-    fn element_addition() {
-        let g = Ristretto255::generator_g();
-        let mut rng = SecureRng::new();
-        let a = Ristretto255::random_scalar(&mut rng);
-        let b = Ristretto255::random_scalar(&mut rng);
-
-        let ga = Ristretto255::scalar_mul(&g, &a);
-        let gb = Ristretto255::scalar_mul(&g, &b);
-        let ga_plus_gb = Ristretto255::element_mul(&ga, &gb);
-
-        let a_plus_b = Ristretto255::scalar_add(&a, &b);
-        let g_a_plus_b = Ristretto255::scalar_mul(&g, &a_plus_b);
-
-        assert_eq!(ga_plus_gb, g_a_plus_b);
-    }
-
-    #[test]
-    fn scalar_operators_match_free_functions() {
-        let mut rng = SecureRng::new();
+    fn scalar_add_sub_roundtrip() {
+        let mut rng = OsRng;
         let a = Scalar::random(&mut rng);
         let b = Scalar::random(&mut rng);
+        assert_eq!(&(&a + &b) - &b, a);
+    }
 
-        assert_eq!(&a + &b, Ristretto255::scalar_add(&a, &b));
-        assert_eq!(&a - &b, Ristretto255::scalar_sub(&a, &b));
-        assert_eq!(&a * &b, Ristretto255::scalar_mul_scalar(&a, &b));
-        assert_eq!(-&a, Ristretto255::scalar_negate(&a));
+    #[test]
+    fn scalar_mul_is_commutative() {
+        let mut rng = OsRng;
+        let a = Scalar::random(&mut rng);
+        let b = Scalar::random(&mut rng);
+        assert_eq!(&a * &b, &b * &a);
+    }
+
+    #[test]
+    fn scalar_negation_sums_to_zero() {
+        let mut rng = OsRng;
+        let a = Scalar::random(&mut rng);
+        assert!((&a + &(-&a)).is_zero());
+    }
+
+    #[test]
+    fn scalar_invert_and_zero() {
+        let mut rng = OsRng;
+        let a = Scalar::random(&mut rng);
+
+        let product = &a * &a.invert().unwrap();
+        let mut one = [0u8; RISTRETTO_BYTES];
+        one[0] = 1;
+        assert_eq!(product.to_bytes(), one);
+
+        let zero = Scalar::from_bytes(&[0u8; RISTRETTO_BYTES]).unwrap();
+        assert!(zero.is_zero());
+        assert!(zero.invert().is_none());
+        assert!(!a.is_zero());
     }
 
     #[test]
     fn scalar_ownership_and_assign_variants() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let a = Scalar::random(&mut rng);
         let b = Scalar::random(&mut rng);
         let expected = &a + &b;
@@ -489,8 +326,18 @@ mod tests {
     }
 
     #[test]
-    fn element_operators_match_free_functions() {
-        let mut rng = SecureRng::new();
+    fn scalar_bytes_roundtrip() {
+        let mut rng = OsRng;
+        let s = Scalar::random(&mut rng);
+        let bytes = s.to_bytes();
+
+        assert_eq!(Scalar::from_bytes(&bytes).unwrap(), s);
+        assert!(Scalar::from_bytes(&bytes[..RISTRETTO_BYTES - 1]).is_err());
+    }
+
+    #[test]
+    fn element_scalar_mul_distributes_over_scalar_add() {
+        let mut rng = OsRng;
         let g = Element::generator_g();
         let s = Scalar::random(&mut rng);
         let t = Scalar::random(&mut rng);
@@ -498,22 +345,16 @@ mod tests {
         let gs = &g * &s;
         let gt = &g * &t;
 
-        assert_eq!(gs, Ristretto255::scalar_mul(&g, &s));
-        assert_eq!(&gs + &gt, Ristretto255::element_mul(&gs, &gt));
-
-        // `Element * Scalar` is the group's scalar multiplication, so it distributes over scalar add.
+        // `Element * Scalar` is the group's scalar multiplication, so it distributes over addition.
         assert_eq!(&g * &(&s + &t), &gs + &gt);
         assert_eq!((&gs - &gt) + &gt, gs);
     }
 
     #[test]
-    fn scalar_bytes_roundtrip() {
-        let mut rng = SecureRng::new();
-        let s = Scalar::random(&mut rng);
-        let bytes = s.to_bytes();
-
-        assert_eq!(Scalar::from_bytes(&bytes).unwrap(), s);
-        assert!(Scalar::from_bytes(&bytes[..RISTRETTO_BYTES - 1]).is_err());
+    fn element_validate_accepts_valid_point() {
+        let mut rng = OsRng;
+        let y = &Element::generator_g() * &Scalar::random(&mut rng);
+        y.validate().unwrap();
     }
 
     #[test]
@@ -526,24 +367,8 @@ mod tests {
     }
 
     #[test]
-    fn generator_h_is_stable() {
-        assert_eq!(Element::generator_h(), Element::generator_h());
-        assert_ne!(Element::generator_h(), Element::generator_g());
-    }
-
-    #[test]
-    fn scalar_invert_and_zero() {
-        let mut rng = SecureRng::new();
-        let a = Scalar::random(&mut rng);
-
-        let product = &a * &a.invert().unwrap();
-        let mut one = [0u8; RISTRETTO_BYTES];
-        one[0] = 1;
-        assert_eq!(product.to_bytes(), one);
-
-        let zero = Scalar::from_bytes(&[0u8; RISTRETTO_BYTES]).unwrap();
-        assert!(zero.is_zero());
-        assert!(zero.invert().is_none());
-        assert!(!a.is_zero());
+    fn identity_is_identity() {
+        assert!(Element::identity().is_identity());
+        assert!(!Element::generator_g().is_identity());
     }
 }

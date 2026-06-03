@@ -6,9 +6,7 @@ use chaum_pedersen::proto::{ChallengeRequest, RegistrationRequest, VerificationR
 use chaum_pedersen::verifier::config::RateLimiter;
 use chaum_pedersen::verifier::service::AuthServiceImpl;
 use chaum_pedersen::verifier::state::ServerState;
-use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Witness,
-};
+use chaum_pedersen::{OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Witness};
 use tonic::Request;
 use tonic::transport::Server;
 
@@ -43,13 +41,13 @@ async fn full_authentication_flow() {
         .expect("Failed to connect to server");
 
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     let register_request = Request::new(RegistrationRequest {
         user_id: "alice".to_string(),
@@ -116,13 +114,13 @@ async fn registration_prevents_duplicates() {
         .expect("Failed to connect to server");
 
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     let register_request1 = Request::new(RegistrationRequest {
         user_id: "bob".to_string(),
@@ -155,13 +153,13 @@ async fn challenge_single_use() {
         .expect("Failed to connect to server");
 
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     let register_request = Request::new(RegistrationRequest {
         user_id: "charlie".to_string(),
@@ -218,13 +216,13 @@ async fn wrong_password_fails_verification() {
         .expect("Failed to connect to server");
 
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x_correct = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x_correct = Scalar::random(&mut rng);
     let witness_correct = Witness::new(x_correct);
     let statement = Statement::from_witness(&params, &witness_correct);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     let register_request = Request::new(RegistrationRequest {
         user_id: "dave".to_string(),
@@ -241,7 +239,7 @@ async fn wrong_password_fails_verification() {
     let challenge_response = client.create_challenge(challenge_request).await.unwrap();
     let challenge_id = challenge_response.into_inner().challenge_id;
 
-    let x_wrong = Ristretto255::random_scalar(&mut rng);
+    let x_wrong = Scalar::random(&mut rng);
     let witness_wrong = Witness::new(x_wrong);
 
     let mut transcript = Transcript::new();
@@ -276,13 +274,13 @@ async fn max_challenges_per_user() {
         .expect("Failed to connect to server");
 
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     let register_request = Request::new(RegistrationRequest {
         user_id: "eve".to_string(),

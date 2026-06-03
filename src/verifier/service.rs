@@ -2,7 +2,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "server")]
 use metrics::{counter, histogram};
-use rand_core::RngCore;
+use rand_core::{OsRng, RngCore};
 use tonic::{Request, Response, Status};
 
 use super::config::RateLimiter;
@@ -14,9 +14,7 @@ use crate::proto::{
     RegistrationResponse, RegistrationResult, VerificationRequest, VerificationResponse,
     VerificationResult,
 };
-use crate::{
-    BatchVerifier, Parameters, Proof, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-};
+use crate::{BatchVerifier, Element, Parameters, Proof, Statement, Transcript, Verifier};
 
 /// gRPC service implementation for Chaum-Pedersen authentication.
 pub struct AuthServiceImpl {
@@ -79,10 +77,10 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::invalid_argument("y1 or y2 values too large"));
         }
 
-        let y1 = Ristretto255::element_from_bytes(&req.y1)
+        let y1 = Element::from_bytes(&req.y1)
             .map_err(|e| Status::invalid_argument(format!("Invalid y1: {e}")))?;
 
-        let y2 = Ristretto255::element_from_bytes(&req.y2)
+        let y2 = Element::from_bytes(&req.y2)
             .map_err(|e| Status::invalid_argument(format!("Invalid y2: {e}")))?;
 
         let statement = Statement::new(y1, y2);
@@ -90,7 +88,7 @@ impl AuthService for AuthServiceImpl {
             .validate()
             .map_err(|e| Status::invalid_argument(format!("Invalid statement: {e}")))?;
 
-        if Ristretto255::is_identity(statement.y1()) || Ristretto255::is_identity(statement.y2()) {
+        if statement.y1().is_identity() || statement.y2().is_identity() {
             return Err(Status::invalid_argument(
                 "Statement contains identity elements",
             ));
@@ -194,7 +192,7 @@ impl AuthService for AuthServiceImpl {
                 continue;
             }
 
-            let y1 = match Ristretto255::element_from_bytes(y1_bytes) {
+            let y1 = match Element::from_bytes(y1_bytes) {
                 Ok(v) => v,
                 Err(e) => {
                     results.push(RegistrationResult {
@@ -206,7 +204,7 @@ impl AuthService for AuthServiceImpl {
                 }
             };
 
-            let y2 = match Ristretto255::element_from_bytes(y2_bytes) {
+            let y2 = match Element::from_bytes(y2_bytes) {
                 Ok(v) => v,
                 Err(e) => {
                     results.push(RegistrationResult {
@@ -228,9 +226,7 @@ impl AuthService for AuthServiceImpl {
                 continue;
             }
 
-            if Ristretto255::is_identity(statement.y1())
-                || Ristretto255::is_identity(statement.y2())
-            {
+            if statement.y1().is_identity() || statement.y2().is_identity() {
                 results.push(RegistrationResult {
                     success: false,
                     message: "Statement contains identity elements".to_string(),
@@ -291,7 +287,7 @@ impl AuthService for AuthServiceImpl {
             .await
             .ok_or_else(|| Status::not_found(format!("User '{}' not found", req.user_id)))?;
 
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let mut challenge_id = vec![0u8; 32];
         rng.fill_bytes(&mut challenge_id);
 
@@ -377,7 +373,7 @@ impl AuthService for AuthServiceImpl {
             .verify_with_transcript(&proof, &mut transcript)
             .map_err(|e| Status::permission_denied(format!("Verification failed: {e}")))?;
 
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let mut session_token = vec![0u8; 32];
         rng.fill_bytes(&mut session_token);
         let session_token_hex = hex::encode(&session_token);
@@ -528,7 +524,7 @@ impl AuthService for AuthServiceImpl {
             }
         }
 
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let batch_results = if batch_verifier.is_empty() {
             vec![]
         } else {

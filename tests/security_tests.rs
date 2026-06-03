@@ -1,13 +1,13 @@
 use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    Element, OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 
 #[test]
 fn prevent_replay_attack_with_different_contexts() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
@@ -41,9 +41,9 @@ fn prevent_replay_attack_with_different_contexts() {
 #[test]
 fn reject_invalid_proof_corrupted_commitment() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
@@ -74,9 +74,9 @@ fn reject_invalid_proof_corrupted_commitment() {
 #[test]
 fn reject_invalid_proof_corrupted_response() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
@@ -107,13 +107,13 @@ fn reject_invalid_proof_corrupted_response() {
 #[test]
 fn proof_cannot_be_used_for_different_statement() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x1 = Ristretto255::random_scalar(&mut rng);
+    let x1 = Scalar::random(&mut rng);
     let witness1 = Witness::new(x1);
     let _statement1 = Statement::from_witness(&params, &witness1);
 
-    let x2 = Ristretto255::random_scalar(&mut rng);
+    let x2 = Scalar::random(&mut rng);
     let witness2 = Witness::new(x2);
     let statement2 = Statement::from_witness(&params, &witness2);
 
@@ -134,11 +134,11 @@ fn proof_cannot_be_used_for_different_statement() {
 
 #[test]
 fn detect_identity_element() {
-    let identity = Ristretto255::identity();
+    let identity = Element::identity();
     let statement = Statement::new(identity.clone(), identity.clone());
 
     assert!(
-        Ristretto255::is_identity(&identity),
+        identity.is_identity(),
         "Identity element should be detectable"
     );
 
@@ -165,9 +165,9 @@ fn proof_deserialization_rejects_malformed_data() {
 #[test]
 fn multiple_proofs_for_same_witness_are_different() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
@@ -211,9 +211,9 @@ fn multiple_proofs_for_same_witness_are_different() {
 #[test]
 fn proof_size_is_reasonable() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
 
     let mut transcript = Transcript::new();

@@ -1,14 +1,14 @@
 use std::hint::black_box;
 
 use chaum_pedersen::{
-    Parameters, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    Element, OsRng, Parameters, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_ristretto_proof_generation(c: &mut Criterion) {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
 
     c.bench_function("ristretto_proof_generation", |b| {
@@ -23,8 +23,8 @@ fn bench_ristretto_proof_generation(c: &mut Criterion) {
 
 fn bench_ristretto_proof_verification(c: &mut Criterion) {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
@@ -46,15 +46,15 @@ fn bench_ristretto_proof_verification(c: &mut Criterion) {
 
 fn bench_statement_serialization(c: &mut Criterion) {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
     c.bench_function("statement_serialization", |b| {
         b.iter(|| {
-            let y1_bytes = Ristretto255::element_to_bytes(black_box(statement.y1()));
-            let y2_bytes = Ristretto255::element_to_bytes(black_box(statement.y2()));
+            let y1_bytes = black_box(statement.y1()).to_bytes();
+            let y2_bytes = black_box(statement.y2()).to_bytes();
             (y1_bytes, y2_bytes)
         })
     });
@@ -62,18 +62,18 @@ fn bench_statement_serialization(c: &mut Criterion) {
 
 fn bench_statement_deserialization(c: &mut Criterion) {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
-    let x = Ristretto255::random_scalar(&mut rng);
+    let mut rng = OsRng;
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes();
+    let y2_bytes = statement.y2().to_bytes();
 
     c.bench_function("statement_deserialization", |b| {
         b.iter(|| {
-            let y1 = Ristretto255::element_from_bytes(black_box(&y1_bytes)).unwrap();
-            let y2 = Ristretto255::element_from_bytes(black_box(&y2_bytes)).unwrap();
+            let y1 = Element::from_bytes(black_box(&y1_bytes)).unwrap();
+            let y2 = Element::from_bytes(black_box(&y2_bytes)).unwrap();
             Statement::new(y1, y2)
         })
     });

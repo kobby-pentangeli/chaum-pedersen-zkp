@@ -2,7 +2,7 @@
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use super::{Element, Ristretto255, Scalar};
+use super::{Element, Scalar};
 use crate::{Error, Result};
 
 const PROTOCOL_VERSION: u8 = 1;
@@ -21,18 +21,18 @@ impl Parameters {
     /// Creates parameters with the default, independent group generators (recommended).
     pub fn new() -> Self {
         Self {
-            generator_g: Ristretto255::generator_g(),
-            generator_h: Ristretto255::generator_h(),
+            generator_g: Element::generator_g(),
+            generator_h: Element::generator_h(),
         }
     }
 
     /// Creates parameters from custom generators, which must be independent, non-identity, and
     /// distinct. Errors on an identity, equal, or otherwise invalid generator.
     pub fn with_generators(g: Element, h: Element) -> Result<Self> {
-        Ristretto255::validate_element(&g)?;
-        Ristretto255::validate_element(&h)?;
+        g.validate()?;
+        h.validate()?;
 
-        if Ristretto255::is_identity(&g) || Ristretto255::is_identity(&h) || g == h {
+        if g.is_identity() || h.is_identity() || g == h {
             return Err(Error::InvalidParameters);
         }
 
@@ -65,7 +65,7 @@ pub struct Witness {
 }
 
 impl Witness {
-    /// Wraps a secret scalar; generate it with a CSPRNG ([`Ristretto255::random_scalar`]).
+    /// Wraps a secret scalar; generate it with a CSPRNG ([`Scalar::random`]).
     pub fn new(x: Scalar) -> Self {
         Self { x }
     }
@@ -90,8 +90,8 @@ impl Statement {
 
     /// Computes the statement from parameters and witness: `y1 = g^x`, `y2 = h^x`.
     pub fn from_witness(params: &Parameters, witness: &Witness) -> Self {
-        let y1 = Ristretto255::scalar_mul(params.generator_g(), witness.secret());
-        let y2 = Ristretto255::scalar_mul(params.generator_h(), witness.secret());
+        let y1 = params.generator_g() * witness.secret();
+        let y2 = params.generator_h() * witness.secret();
         Self { y1, y2 }
     }
 
@@ -105,8 +105,8 @@ impl Statement {
 
     /// Checks that both values are valid, canonical group elements.
     pub fn validate(&self) -> Result<()> {
-        Ristretto255::validate_element(&self.y1)?;
-        Ristretto255::validate_element(&self.y2)?;
+        self.y1.validate()?;
+        self.y2.validate()?;
         Ok(())
     }
 }
@@ -188,9 +188,9 @@ impl Proof {
 
     /// Serializes the proof to its versioned byte encoding.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let r1_bytes = Ristretto255::element_to_bytes(self.commitment.r1());
-        let r2_bytes = Ristretto255::element_to_bytes(self.commitment.r2());
-        let s_bytes = Ristretto255::scalar_to_bytes(self.response.s());
+        let r1_bytes = self.commitment.r1().to_bytes();
+        let r2_bytes = self.commitment.r2().to_bytes();
+        let s_bytes = self.response.s().to_bytes();
 
         let mut result = Vec::new();
         result.push(self.version);
@@ -241,7 +241,7 @@ impl Proof {
         if pos + r1_len > bytes.len() {
             return Err(Error::Deserialization);
         }
-        let r1 = Ristretto255::element_from_bytes(&bytes[pos..pos + r1_len])?;
+        let r1 = Element::from_bytes(&bytes[pos..pos + r1_len])?;
         pos += r1_len;
 
         if pos + 4 > bytes.len() {
@@ -261,7 +261,7 @@ impl Proof {
         if pos + r2_len > bytes.len() {
             return Err(Error::Deserialization);
         }
-        let r2 = Ristretto255::element_from_bytes(&bytes[pos..pos + r2_len])?;
+        let r2 = Element::from_bytes(&bytes[pos..pos + r2_len])?;
         pos += r2_len;
 
         if pos + 4 > bytes.len() {
@@ -281,21 +281,21 @@ impl Proof {
         if pos + s_len > bytes.len() {
             return Err(Error::Deserialization);
         }
-        let s = Ristretto255::scalar_from_bytes(&bytes[pos..pos + s_len])?;
+        let s = Scalar::from_bytes(&bytes[pos..pos + s_len])?;
         pos += s_len;
 
         if pos != bytes.len() {
             return Err(Error::Deserialization);
         }
 
-        Ristretto255::validate_element(&r1)?;
-        Ristretto255::validate_element(&r2)?;
+        r1.validate()?;
+        r2.validate()?;
 
-        if Ristretto255::is_identity(&r1) || Ristretto255::is_identity(&r2) {
+        if r1.is_identity() || r2.is_identity() {
             return Err(Error::IdentityElement);
         }
 
-        if Ristretto255::scalar_is_zero(&s) {
+        if s.is_zero() {
             return Err(Error::Deserialization);
         }
 
@@ -310,19 +310,19 @@ impl Proof {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SecureRng;
+    use crate::OsRng;
 
     #[test]
     fn parameters_default() {
         let params = Parameters::default();
-        assert_eq!(params.generator_g(), &Ristretto255::generator_g());
-        assert_eq!(params.generator_h(), &Ristretto255::generator_h());
+        assert_eq!(params.generator_g(), &Element::generator_g());
+        assert_eq!(params.generator_h(), &Element::generator_h());
     }
 
     #[test]
     fn parameters_rejects_identity_generators() {
-        let identity = Ristretto255::identity();
-        let g = Ristretto255::generator_g();
+        let identity = Element::identity();
+        let g = Element::generator_g();
 
         assert!(Parameters::with_generators(identity.clone(), g.clone()).is_err());
         assert!(Parameters::with_generators(g.clone(), identity).is_err());
@@ -330,20 +330,20 @@ mod tests {
 
     #[test]
     fn parameters_rejects_equal_generators() {
-        let g = Ristretto255::generator_g();
+        let g = Element::generator_g();
         assert!(Parameters::with_generators(g.clone(), g).is_err());
     }
 
     #[test]
     fn statement_from_witness() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x.clone());
 
         let statement = Statement::from_witness(&params, &witness);
-        let expected_y1 = Ristretto255::scalar_mul(params.generator_g(), &x);
-        let expected_y2 = Ristretto255::scalar_mul(params.generator_h(), &x);
+        let expected_y1 = params.generator_g() * &x;
+        let expected_y2 = params.generator_h() * &x;
 
         assert_eq!(statement.y1(), &expected_y1);
         assert_eq!(statement.y2(), &expected_y2);
@@ -351,17 +351,11 @@ mod tests {
 
     #[test]
     fn proof_serialization() {
-        let mut rng = SecureRng::new();
-        let r1 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_g(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
-        let r2 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_h(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
+        let mut rng = OsRng;
+        let r1 = &Element::generator_g() * &Scalar::random(&mut rng);
+        let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
         let commitment = Commitment::new(r1, r2);
-        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let bytes = proof.to_bytes().unwrap();
@@ -409,17 +403,11 @@ mod tests {
 
     #[test]
     fn proof_from_bytes_rejects_trailing_data() {
-        let mut rng = SecureRng::new();
-        let r1 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_g(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
-        let r2 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_h(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
+        let mut rng = OsRng;
+        let r1 = &Element::generator_g() * &Scalar::random(&mut rng);
+        let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
         let commitment = Commitment::new(r1, r2);
-        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let mut bytes = proof.to_bytes().unwrap();
@@ -431,15 +419,12 @@ mod tests {
 
     #[test]
     fn proof_from_bytes_rejects_identity_commitment() {
-        let identity = Ristretto255::identity();
-        let mut rng = SecureRng::new();
-        let r2 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_h(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
+        let identity = Element::identity();
+        let mut rng = OsRng;
+        let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
 
         let commitment = Commitment::new(identity, r2);
-        let response = Response::new(Ristretto255::random_scalar(&mut rng));
+        let response = Response::new(Scalar::random(&mut rng));
         let proof = Proof::new(commitment, response);
 
         let bytes = proof.to_bytes().unwrap();
@@ -449,18 +434,12 @@ mod tests {
 
     #[test]
     fn proof_from_bytes_rejects_zero_response() {
-        let mut rng = SecureRng::new();
-        let r1 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_g(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
-        let r2 = Ristretto255::scalar_mul(
-            &Ristretto255::generator_h(),
-            &Ristretto255::random_scalar(&mut rng),
-        );
+        let mut rng = OsRng;
+        let r1 = &Element::generator_g() * &Scalar::random(&mut rng);
+        let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
         let commitment = Commitment::new(r1, r2);
 
-        let zero_scalar = Ristretto255::scalar_from_bytes(&[0u8; 32]).unwrap();
+        let zero_scalar = Scalar::from_bytes(&[0u8; 32]).unwrap();
         let response = Response::new(zero_scalar);
         let proof = Proof::new(commitment, response);
 

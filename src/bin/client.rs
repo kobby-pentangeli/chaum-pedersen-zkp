@@ -6,9 +6,7 @@ use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
     VerificationRequest,
 };
-use chaum_pedersen::{
-    Parameters, Prover, Ristretto255, Scalar, SecureRng, Statement, Transcript, Witness,
-};
+use chaum_pedersen::{OsRng, Parameters, Prover, Scalar, Statement, Transcript, Witness};
 use clap::Parser;
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
@@ -199,7 +197,7 @@ fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
     let scalar = DalekScalar::from_bytes_mod_order_wide(&hash.into());
 
     let scalar_bytes = scalar.to_bytes();
-    Ristretto255::scalar_from_bytes(&scalar_bytes)
+    Scalar::from_bytes(&scalar_bytes)
         .unwrap_or_else(|e| panic!("Failed to create scalar from password hash: {e}"))
 }
 
@@ -213,8 +211,8 @@ async fn do_register(
     let witness = Witness::new(x);
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes().to_vec();
+    let y2_bytes = statement.y2().to_bytes().to_vec();
 
     let request = Request::new(RegistrationRequest {
         user_id: user.to_string(),
@@ -255,7 +253,7 @@ async fn do_login(
     let witness = Witness::new(x);
     let prover = Prover::new(params, witness);
 
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     let mut transcript = Transcript::new();
     transcript.append_context(&challenge_resp.challenge_id);
 
@@ -301,8 +299,8 @@ async fn do_batch_register(
         let witness = Witness::new(x);
         let statement = Statement::from_witness(&params, &witness);
 
-        y1_values.push(Ristretto255::element_to_bytes(statement.y1()));
-        y2_values.push(Ristretto255::element_to_bytes(statement.y2()));
+        y1_values.push(statement.y1().to_bytes().to_vec());
+        y2_values.push(statement.y2().to_bytes().to_vec());
     }
 
     let request = Request::new(BatchRegistrationRequest {
@@ -365,7 +363,7 @@ async fn do_batch_login(
         let witness = Witness::new(x);
         let prover = Prover::new(params, witness);
 
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let mut transcript = Transcript::new();
         transcript.append_context(&challenge_resp.challenge_id);
 

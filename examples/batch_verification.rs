@@ -1,14 +1,12 @@
 use std::time::Instant;
 
-use chaum_pedersen::{
-    BatchVerifier, Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness,
-};
+use chaum_pedersen::{BatchVerifier, OsRng, Parameters, Prover, Scalar, Transcript, Witness};
 
 fn main() {
     println!("Chaum-Pedersen Zero-Knowledge Protocol: Batch Verification Example");
     println!("==========================================\n");
 
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     let params = Parameters::new();
 
     println!("Generating 10 proofs...");
@@ -16,7 +14,7 @@ fn main() {
     let mut batch_verifier = BatchVerifier::new();
 
     for i in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -61,7 +59,7 @@ fn main() {
 
     let mut individual_proofs = Vec::new();
     for _ in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -78,7 +76,7 @@ fn main() {
 
     let mut batch_verifier = BatchVerifier::new();
     for _ in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();

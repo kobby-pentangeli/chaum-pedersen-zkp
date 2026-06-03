@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 
 /// Simple authentication server that stores user statements and manages challenges.
@@ -99,9 +99,9 @@ struct AuthClient {
 impl AuthClient {
     fn new() -> Self {
         let params = Parameters::new();
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
 
-        let x = Ristretto255::random_scalar(&mut rng);
+        let x = Scalar::random(&mut rng);
         let witness = Witness::new(x);
 
         Self { params, witness }
@@ -112,7 +112,7 @@ impl AuthClient {
     }
 
     fn authenticate(&self, challenge_id: &str) -> Proof {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let mut transcript = Transcript::new();
         transcript.append_context(challenge_id.as_bytes());
 

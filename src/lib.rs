@@ -8,13 +8,13 @@
 //!
 //! ```rust
 //! use chaum_pedersen::{
-//!     Ristretto255, SecureRng, Parameters, Witness, Statement, Prover, Verifier, Transcript
+//!     OsRng, Parameters, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 //! };
 //!
 //! let params = Parameters::new();
-//! let mut rng = SecureRng::new();
+//! let mut rng = OsRng;
 //!
-//! let x = Ristretto255::random_scalar(&mut rng);
+//! let x = Scalar::random(&mut rng);
 //! let witness = Witness::new(x);
 //! let statement = Statement::from_witness(&params, &witness);
 //!
@@ -56,8 +56,7 @@ pub use error::Error;
 #[cfg(feature = "server")]
 pub use error::StateError;
 pub use primitives::{
-    Commitment, Element, Parameters, Proof, Response, Ristretto255, Scalar, SecureRng, Statement,
-    Transcript, Witness,
+    Commitment, Element, OsRng, Parameters, Proof, Response, Scalar, Statement, Transcript, Witness,
 };
 pub use prover::Prover;
 pub use verifier::{BatchVerifier, Verifier};

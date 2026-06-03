@@ -8,7 +8,7 @@
 //! - Verifying the proof
 
 use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 
 fn main() {
@@ -16,11 +16,11 @@ fn main() {
 
     println!("Step 1: Initialize parameters and RNG");
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     println!("  Using Ristretto255 group with default generators\n");
 
     println!("Step 2: Prover generates secret witness");
-    let x = Ristretto255::random_scalar(&mut rng);
+    let x = Scalar::random(&mut rng);
     let witness = Witness::new(x);
     println!("  Secret witness generated (automatically zeroized on drop)\n");
 

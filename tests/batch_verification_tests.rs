@@ -6,7 +6,7 @@ use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
 };
 use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerState};
-use chaum_pedersen::{Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness};
+use chaum_pedersen::{OsRng, Parameters, Prover, Transcript, Witness};
 use tonic::transport::Server;
 
 mod common;
@@ -36,7 +36,7 @@ async fn start_test_server() -> (String, tokio::task::JoinHandle<()>) {
 }
 
 fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     let params = Parameters::new();
 
     let password = format!("password-{}", user_id);
@@ -46,8 +46,8 @@ fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<
     let prover = Prover::new(params.clone(), witness);
     let statement = prover.statement();
 
-    let y1 = Ristretto255::element_to_bytes(statement.y1());
-    let y2 = Ristretto255::element_to_bytes(statement.y2());
+    let y1 = statement.y1().to_bytes().to_vec();
+    let y2 = statement.y2().to_bytes().to_vec();
 
     let mut transcript = Transcript::new();
     transcript.append_context(challenge_id);
@@ -83,7 +83,7 @@ fn derive_scalar_from_password(password: &str, user_id: &str) -> chaum_pedersen:
     let scalar = DalekScalar::from_bytes_mod_order_wide(&hash.into());
 
     let scalar_bytes = scalar.to_bytes();
-    Ristretto255::scalar_from_bytes(&scalar_bytes).unwrap()
+    chaum_pedersen::Scalar::from_bytes(&scalar_bytes).unwrap()
 }
 
 #[tokio::test]

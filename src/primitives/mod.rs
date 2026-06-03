@@ -1,12 +1,11 @@
 //! Core cryptographic primitives:
-//! Ristretto255 group operations, RNG, gadgets, and transcript.
+//! Ristretto255 group operations, gadgets, and transcript.
 
 pub mod gadgets;
 pub mod ristretto;
-pub mod rng;
 pub mod transcript;
 
 pub use gadgets::{Commitment, Parameters, Proof, Response, Statement, Witness};
-pub use ristretto::{Element, Ristretto255, Scalar};
-pub use rng::SecureRng;
+pub use rand_core::OsRng;
+pub use ristretto::{Element, Scalar};
 pub use transcript::Transcript;
