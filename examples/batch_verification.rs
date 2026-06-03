@@ -15,7 +15,7 @@ fn main() {
 
     for i in 0..batch_size {
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
 
@@ -60,7 +60,7 @@ fn main() {
     let mut individual_proofs = Vec::new();
     for _ in 0..batch_size {
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
@@ -77,7 +77,7 @@ fn main() {
     let mut batch_verifier = BatchVerifier::new();
     for _ in 0..batch_size {
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();

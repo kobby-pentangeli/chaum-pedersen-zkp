@@ -102,7 +102,7 @@ impl AuthClient {
         let mut rng = OsRng;
 
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).expect("Witness creation should succeed");
 
         Self { params, witness }
     }

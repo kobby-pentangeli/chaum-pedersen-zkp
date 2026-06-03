@@ -41,7 +41,7 @@ fn generate_proof_for_user(user_id: &str, challenge_id: &[u8]) -> (Vec<u8>, Vec<
 
     let password = format!("password-{}", user_id);
     let x = derive_scalar_from_password(&password, user_id);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
 
     let prover = Prover::new(params.clone(), witness);
     let statement = prover.statement();

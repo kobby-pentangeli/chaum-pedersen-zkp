@@ -21,7 +21,7 @@ fn main() {
 
     println!("Step 2: Prover generates secret witness");
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).expect("Witness creation should succeed");
     println!("  Secret witness generated (automatically zeroized on drop)\n");
 
     println!("Step 3: Compute public statement from witness");

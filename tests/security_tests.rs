@@ -1,5 +1,6 @@
 use chaum_pedersen::{
-    Element, OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Verifier, Witness,
+    Commitment, Element, OsRng, Parameters, Proof, Prover, Response, Scalar, Statement, Transcript,
+    Verifier, Witness,
 };
 
 #[test]
@@ -8,7 +9,7 @@ fn prevent_replay_attack_with_different_contexts() {
     let mut rng = OsRng;
 
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript1 = Transcript::new();
@@ -44,7 +45,7 @@ fn reject_invalid_proof_corrupted_commitment() {
     let mut rng = OsRng;
 
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript = Transcript::new();
@@ -77,7 +78,7 @@ fn reject_invalid_proof_corrupted_response() {
     let mut rng = OsRng;
 
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript = Transcript::new();
@@ -110,11 +111,11 @@ fn proof_cannot_be_used_for_different_statement() {
     let mut rng = OsRng;
 
     let x1 = Scalar::random(&mut rng);
-    let witness1 = Witness::new(x1);
+    let witness1 = Witness::new(x1).unwrap();
     let _statement1 = Statement::from_witness(&params, &witness1);
 
     let x2 = Scalar::random(&mut rng);
-    let witness2 = Witness::new(x2);
+    let witness2 = Witness::new(x2).unwrap();
     let statement2 = Statement::from_witness(&params, &witness2);
 
     let mut transcript = Transcript::new();
@@ -133,18 +134,67 @@ fn proof_cannot_be_used_for_different_statement() {
 }
 
 #[test]
-fn detect_identity_element() {
+fn reject_identity_statement() {
     let identity = Element::identity();
-    let statement = Statement::new(identity.clone(), identity.clone());
+
+    assert!(identity.is_identity());
 
     assert!(
-        identity.is_identity(),
-        "Identity element should be detectable"
+        Statement::new(identity.clone(), identity).is_err(),
+        "Statement::new must reject an identity element (x = 0 is a trivially-known secret)"
     );
+}
+
+#[test]
+fn reject_zero_witness() {
+    let zero = Scalar::from_bytes(&[0u8; 32]).expect("zero is a canonical scalar");
 
     assert!(
-        statement.validate().is_ok(),
-        "Statement validation allows identity (note: this is a known limitation)"
+        Witness::new(zero).is_err(),
+        "Witness::new must reject the zero scalar"
+    );
+}
+
+#[test]
+fn verify_rejects_identity_commitment() {
+    let params = Parameters::new();
+    let mut rng = OsRng;
+
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
+    let statement = Statement::from_witness(&params, &witness);
+
+    let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
+    let commitment = Commitment::new(Element::identity(), r2);
+    let proof = Proof::new(commitment, Response::new(Scalar::random(&mut rng)));
+
+    let verifier = Verifier::new(params, statement);
+    assert!(
+        verifier.verify(&proof).is_err(),
+        "Verification must reject an identity commitment element"
+    );
+}
+
+#[test]
+fn verify_response_rejects_zero_challenge() {
+    let params = Parameters::new();
+    let mut rng = OsRng;
+
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
+    let statement = Statement::from_witness(&params, &witness);
+
+    let prover = Prover::new(params.clone(), witness);
+    let (commitment, nonce) = prover.commit(&mut rng);
+
+    let zero = Scalar::from_bytes(&[0u8; 32]).expect("zero is a canonical scalar");
+    let response = prover.respond(&nonce, &zero);
+    let proof = Proof::new(commitment, response);
+
+    let verifier = Verifier::new(params, statement);
+    assert!(
+        verifier.verify_response(&zero, &proof).is_err(),
+        "A zero challenge drops the y^c binding term and must be rejected"
     );
 }
 
@@ -168,7 +218,7 @@ fn multiple_proofs_for_same_witness_are_different() {
     let mut rng = OsRng;
 
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript1 = Transcript::new();
@@ -214,7 +264,7 @@ fn proof_size_is_reasonable() {
     let mut rng = OsRng;
 
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
 
     let mut transcript = Transcript::new();
     let proof = Prover::new(params, witness)

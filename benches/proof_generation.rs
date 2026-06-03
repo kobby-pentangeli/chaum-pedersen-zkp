@@ -9,7 +9,7 @@ fn bench_ristretto_proof_generation(c: &mut Criterion) {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
 
     c.bench_function("ristretto_proof_generation", |b| {
         b.iter(|| {
@@ -25,7 +25,7 @@ fn bench_ristretto_proof_verification(c: &mut Criterion) {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript = Transcript::new();
@@ -48,7 +48,7 @@ fn bench_statement_serialization(c: &mut Criterion) {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     c.bench_function("statement_serialization", |b| {
@@ -64,7 +64,7 @@ fn bench_statement_deserialization(c: &mut Criterion) {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes();
@@ -74,7 +74,7 @@ fn bench_statement_deserialization(c: &mut Criterion) {
         b.iter(|| {
             let y1 = Element::from_bytes(black_box(&y1_bytes)).unwrap();
             let y2 = Element::from_bytes(black_box(&y2_bytes)).unwrap();
-            Statement::new(y1, y2)
+            Statement::new(y1, y2).unwrap()
         })
     });
 }

@@ -38,9 +38,9 @@ static GENERATOR_H: LazyLock<RistrettoPoint> = LazyLock::new(|| {
 
 /// Scalar in the Ristretto255 group.
 ///
-/// Scalars are automatically zeroized when dropped for security.
+/// Implements [`Zeroize`] so the secret-bearing wrappers wipe it on drop; a bare scalar is not
+/// itself zeroized on drop.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
 pub struct Scalar(DalekScalar);
 
 /// Element (point) in the Ristretto255 group.

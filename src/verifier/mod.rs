@@ -28,7 +28,8 @@ pub use state::ServerState;
 ///
 /// # Security
 ///
-/// - Validate the statement before verification.
+/// - Verification rejects identity statement/commitment elements and a zero
+///   challenge; invalid inputs are rejected, never accepted.
 /// - Use the same transcript context as the prover; a mismatch rejects the proof (anti-replay).
 pub struct Verifier {
     params: Parameters,
@@ -49,8 +50,6 @@ impl Verifier {
     /// Verifies a proof against a transcript that must match the prover's; the context binding
     /// prevents replay.
     pub fn verify_with_transcript(&self, proof: &Proof, transcript: &mut Transcript) -> Result<()> {
-        self.statement.validate()?;
-
         transcript.append_parameters(
             &self.params.generator_g().to_bytes(),
             &self.params.generator_h().to_bytes(),
@@ -71,6 +70,13 @@ impl Verifier {
 
     /// Interactive protocol, message 4: checks `g^s = r1·y1^c` and `h^s = r2·y2^c`.
     pub fn verify_response(&self, challenge: &Scalar, proof: &Proof) -> Result<()> {
+        self.statement.validate()?;
+        proof.commitment().validate()?;
+
+        if challenge.is_zero() {
+            return Err(Error::VerificationFailed);
+        }
+
         let g = self.params.generator_g();
         let h = self.params.generator_h();
         let y1 = self.statement.y1();
@@ -108,7 +114,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -123,13 +129,13 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let proof = prover.prove(&mut rng).unwrap();
 
         let x2 = Scalar::random(&mut rng);
-        let wrong_witness = Witness::new(x2);
+        let wrong_witness = Witness::new(x2).unwrap();
         let wrong_statement = Statement::from_witness(&params, &wrong_witness);
 
         let verifier = Verifier::new(params, wrong_statement);
@@ -141,7 +147,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();

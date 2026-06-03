@@ -66,8 +66,14 @@ pub struct Witness {
 
 impl Witness {
     /// Wraps a secret scalar; generate it with a CSPRNG ([`Scalar::random`]).
-    pub fn new(x: Scalar) -> Self {
-        Self { x }
+    ///
+    /// Rejects the zero scalar: `x = 0` yields the identity statement `y1 = y2 = identity`, a
+    /// trivially-known "secret" that destroys soundness.
+    pub fn new(x: Scalar) -> Result<Self> {
+        if x.is_zero() {
+            return Err(Error::IdentityElement);
+        }
+        Ok(Self { x })
     }
 
     pub(crate) fn secret(&self) -> &Scalar {
@@ -84,11 +90,17 @@ pub struct Statement {
 }
 
 impl Statement {
-    pub fn new(y1: Element, y2: Element) -> Self {
-        Self { y1, y2 }
+    /// Wraps two group elements as a statement after checking both are canonical, non-identity
+    /// encodings (see [`Statement::validate`]).
+    pub fn new(y1: Element, y2: Element) -> Result<Self> {
+        let statement = Self { y1, y2 };
+        statement.validate()?;
+        Ok(statement)
     }
 
     /// Computes the statement from parameters and witness: `y1 = g^x`, `y2 = h^x`.
+    ///
+    /// Infallible: [`Witness`] guarantees `x != 0`, so neither `y1` nor `y2` is the identity.
     pub fn from_witness(params: &Parameters, witness: &Witness) -> Self {
         let y1 = params.generator_g() * witness.secret();
         let y2 = params.generator_h() * witness.secret();
@@ -103,10 +115,17 @@ impl Statement {
         &self.y2
     }
 
-    /// Checks that both values are valid, canonical group elements.
+    /// Checks that both values are canonical, non-identity group elements.
+    ///
+    /// An identity `y1` or `y2` corresponds to the discrete log `x = 0` and is rejected.
     pub fn validate(&self) -> Result<()> {
         self.y1.validate()?;
         self.y2.validate()?;
+
+        if self.y1.is_identity() || self.y2.is_identity() {
+            return Err(Error::IdentityElement);
+        }
+
         Ok(())
     }
 }
@@ -132,13 +151,28 @@ impl Commitment {
     pub fn r2(&self) -> &Element {
         &self.r2
     }
+
+    /// Checks that both commitment values are canonical, non-identity group elements.
+    ///
+    /// An identity `r1` or `r2` lets a malicious prover sidestep the binding check, so it is
+    /// rejected on the verification path, not only at deserialization.
+    pub fn validate(&self) -> Result<()> {
+        self.r1.validate()?;
+        self.r2.validate()?;
+
+        if self.r1.is_identity() || self.r2.is_identity() {
+            return Err(Error::IdentityElement);
+        }
+
+        Ok(())
+    }
 }
 
 /// Response value in the Chaum-Pedersen proof.
 ///
-/// Prover's response to challenge: `s = k + c*x`.
-#[derive(Clone, Debug, Zeroize)]
-#[zeroize(drop)]
+/// Prover's response to challenge: `s = k + c*x`. Public (part of the transmitted proof), so it is
+/// not zeroized.
+#[derive(Clone, Debug)]
 pub struct Response {
     s: Scalar,
 }
@@ -339,7 +373,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x.clone());
+        let witness = Witness::new(x.clone()).unwrap();
 
         let statement = Statement::from_witness(&params, &witness);
         let expected_y1 = params.generator_g() * &x;

@@ -122,7 +122,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params, witness);
         assert!(prover.statement().y1() != &Element::identity());
@@ -133,7 +133,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params, witness);
         let proof = prover.prove(&mut rng).unwrap();
@@ -146,7 +146,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params, witness);
         let (_commitment, nonce) = prover.commit(&mut rng);

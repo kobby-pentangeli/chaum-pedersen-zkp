@@ -43,7 +43,7 @@ async fn full_authentication_flow() {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes();
@@ -116,7 +116,7 @@ async fn registration_prevents_duplicates() {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes();
@@ -155,7 +155,7 @@ async fn challenge_single_use() {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes();
@@ -218,7 +218,7 @@ async fn wrong_password_fails_verification() {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x_correct = Scalar::random(&mut rng);
-    let witness_correct = Witness::new(x_correct);
+    let witness_correct = Witness::new(x_correct).unwrap();
     let statement = Statement::from_witness(&params, &witness_correct);
 
     let y1_bytes = statement.y1().to_bytes();
@@ -240,7 +240,7 @@ async fn wrong_password_fails_verification() {
     let challenge_id = challenge_response.into_inner().challenge_id;
 
     let x_wrong = Scalar::random(&mut rng);
-    let witness_wrong = Witness::new(x_wrong);
+    let witness_wrong = Witness::new(x_wrong).unwrap();
 
     let mut transcript = Transcript::new();
     transcript.append_context(&challenge_id);
@@ -276,7 +276,7 @@ async fn max_challenges_per_user() {
     let params = Parameters::new();
     let mut rng = OsRng;
     let x = Scalar::random(&mut rng);
-    let witness = Witness::new(x);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes();

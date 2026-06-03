@@ -15,7 +15,7 @@
 //! let mut rng = OsRng;
 //!
 //! let x = Scalar::random(&mut rng);
-//! let witness = Witness::new(x);
+//! let witness = Witness::new(x).unwrap();
 //! let statement = Statement::from_witness(&params, &witness);
 //!
 //! let mut transcript = Transcript::new();

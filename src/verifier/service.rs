@@ -83,16 +83,8 @@ impl AuthService for AuthServiceImpl {
         let y2 = Element::from_bytes(&req.y2)
             .map_err(|e| Status::invalid_argument(format!("Invalid y2: {e}")))?;
 
-        let statement = Statement::new(y1, y2);
-        statement
-            .validate()
+        let statement = Statement::new(y1, y2)
             .map_err(|e| Status::invalid_argument(format!("Invalid statement: {e}")))?;
-
-        if statement.y1().is_identity() || statement.y2().is_identity() {
-            return Err(Status::invalid_argument(
-                "Statement contains identity elements",
-            ));
-        }
 
         let user_data = UserData {
             user_id: req.user_id.clone(),
@@ -216,24 +208,17 @@ impl AuthService for AuthServiceImpl {
                 }
             };
 
-            let statement = Statement::new(y1, y2);
-            if let Err(e) = statement.validate() {
-                results.push(RegistrationResult {
-                    success: false,
-                    message: format!("Invalid statement: {e}"),
-                });
-                counter!("auth.register_batch.individual_failure").increment(1);
-                continue;
-            }
-
-            if statement.y1().is_identity() || statement.y2().is_identity() {
-                results.push(RegistrationResult {
-                    success: false,
-                    message: "Statement contains identity elements".to_string(),
-                });
-                counter!("auth.register_batch.individual_failure").increment(1);
-                continue;
-            }
+            let statement = match Statement::new(y1, y2) {
+                Ok(s) => s,
+                Err(e) => {
+                    results.push(RegistrationResult {
+                        success: false,
+                        message: format!("Invalid statement: {e}"),
+                    });
+                    counter!("auth.register_batch.individual_failure").increment(1);
+                    continue;
+                }
+            };
 
             let user_data = UserData {
                 user_id: user_id.clone(),

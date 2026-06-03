@@ -19,7 +19,7 @@ fn bench_batch_verification(c: &mut Criterion) {
                 let mut batch_verifier = BatchVerifier::new();
                 for _ in 0..size {
                     let x = Scalar::random(&mut rng);
-                    let witness = Witness::new(x);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
                     let proof = prover.prove(&mut rng).unwrap();
@@ -45,7 +45,7 @@ fn bench_batch_verification(c: &mut Criterion) {
                 let mut proofs = Vec::new();
                 for _ in 0..size {
                     let x = Scalar::random(&mut rng);
-                    let witness = Witness::new(x);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
                     let proof = prover.prove(&mut rng).unwrap();
@@ -79,7 +79,7 @@ fn bench_batch_verification_with_transcript(c: &mut Criterion) {
                 let mut batch_verifier = BatchVerifier::new();
                 for i in 0..size {
                     let x = Scalar::random(&mut rng);
-                    let witness = Witness::new(x);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
 
@@ -122,7 +122,7 @@ fn bench_batch_verification_mixed_validity(c: &mut Criterion) {
         let mut batch_verifier = BatchVerifier::new();
         for i in 0..batch_size {
             let x = Scalar::random(&mut rng);
-            let witness = Witness::new(x);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let proof = prover.prove(&mut rng).unwrap();
 
@@ -130,7 +130,7 @@ fn bench_batch_verification_mixed_validity(c: &mut Criterion) {
                 prover.statement().clone()
             } else {
                 let x2 = Scalar::random(&mut rng);
-                let wrong_witness = Witness::new(x2);
+                let wrong_witness = Witness::new(x2).unwrap();
                 Statement::from_witness(&params, &wrong_witness)
             };
 
@@ -156,7 +156,7 @@ fn bench_batch_add_proof(c: &mut Criterion) {
         let params = Parameters::new();
 
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();

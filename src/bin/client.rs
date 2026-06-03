@@ -208,7 +208,7 @@ async fn do_register(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let x = password_to_scalar(password, user);
     let params = Parameters::new();
-    let witness = Witness::new(x);
+    let witness = Witness::new(x)?;
     let statement = Statement::from_witness(&params, &witness);
 
     let y1_bytes = statement.y1().to_bytes().to_vec();
@@ -250,7 +250,7 @@ async fn do_login(
 
     let x = password_to_scalar(password, user);
     let params = Parameters::new();
-    let witness = Witness::new(x);
+    let witness = Witness::new(x)?;
     let prover = Prover::new(params, witness);
 
     let mut rng = OsRng;
@@ -296,7 +296,7 @@ async fn do_batch_register(
     for (i, user) in users.iter().enumerate() {
         let x = password_to_scalar(&passwords[i], user);
         let params = Parameters::new();
-        let witness = Witness::new(x);
+        let witness = Witness::new(x)?;
         let statement = Statement::from_witness(&params, &witness);
 
         y1_values.push(statement.y1().to_bytes().to_vec());
@@ -360,7 +360,7 @@ async fn do_batch_login(
 
         let x = password_to_scalar(&passwords[i], user);
         let params = Parameters::new();
-        let witness = Witness::new(x);
+        let witness = Witness::new(x)?;
         let prover = Prover::new(params, witness);
 
         let mut rng = OsRng;

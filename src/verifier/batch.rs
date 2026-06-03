@@ -77,6 +77,7 @@ impl BatchVerifier {
         }
 
         statement.validate()?;
+        proof.commitment().validate()?;
 
         self.entries.push(BatchEntry {
             params,
@@ -250,7 +251,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
@@ -268,12 +269,12 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let proof = prover.prove(&mut rng).unwrap();
 
         let x2 = Scalar::random(&mut rng);
-        let wrong_witness = Witness::new(x2);
+        let wrong_witness = Witness::new(x2).unwrap();
         let wrong_statement = Statement::from_witness(&params, &wrong_witness);
 
         let mut batch = BatchVerifier::new();
@@ -292,7 +293,7 @@ mod tests {
 
         for _ in 0..10 {
             let x = Scalar::random(&mut rng);
-            let witness = Witness::new(x);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let statement = prover.statement().clone();
             let proof = prover.prove(&mut rng).unwrap();
@@ -312,7 +313,7 @@ mod tests {
 
         for i in 0..10 {
             let x = Scalar::random(&mut rng);
-            let witness = Witness::new(x);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let proof = prover.prove(&mut rng).unwrap();
 
@@ -320,7 +321,7 @@ mod tests {
                 prover.statement().clone()
             } else {
                 let x2 = Scalar::random(&mut rng);
-                let wrong_witness = Witness::new(x2);
+                let wrong_witness = Witness::new(x2).unwrap();
                 Statement::from_witness(&params, &wrong_witness)
             };
 
@@ -344,7 +345,7 @@ mod tests {
         let mut rng = OsRng;
         let params = Parameters::new();
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -373,7 +374,7 @@ mod tests {
 
         for _ in 0..MAX_BATCH_SIZE {
             let x = Scalar::random(&mut rng);
-            let witness = Witness::new(x);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let statement = prover.statement().clone();
             let proof = prover.prove(&mut rng).unwrap();
@@ -381,7 +382,7 @@ mod tests {
         }
 
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
@@ -403,7 +404,7 @@ mod tests {
         let mut batch = BatchVerifier::new();
 
         let x = Scalar::random(&mut rng);
-        let witness = Witness::new(x);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
