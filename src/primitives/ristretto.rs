@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar as DalekScalar;
-use curve25519_dalek::traits::{Identity, IsIdentity};
+use curve25519_dalek::traits::{Identity, IsIdentity, VartimeMultiscalarMul};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -87,6 +87,11 @@ impl Scalar {
     pub fn is_zero(&self) -> bool {
         self.0 == DalekScalar::ZERO
     }
+
+    /// The additive-identity (zero) scalar, for use as a summation accumulator.
+    pub(crate) fn zero() -> Self {
+        Self(DalekScalar::ZERO)
+    }
 }
 
 impl Element {
@@ -145,6 +150,17 @@ impl Element {
             Some(point) if point == self.0 => Ok(()),
             _ => Err(Error::InvalidEncoding),
         }
+    }
+
+    /// Multiscalar multiplication `Σ scalars[i] · points[i]` over equal-length inputs.
+    ///
+    /// Variable-time, so it must be used only on public data (proof verification), never on secret
+    /// scalars. Faster than summing repeated [`Element`]`*`[`Scalar`] products.
+    pub(crate) fn vartime_multiscalar_mul(scalars: &[Scalar], points: &[Element]) -> Self {
+        Self(RistrettoPoint::vartime_multiscalar_mul(
+            scalars.iter().map(Scalar::inner),
+            points.iter().map(Element::inner),
+        ))
     }
 }
 

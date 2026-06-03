@@ -1,8 +1,9 @@
 //! Batch verification for Chaum-Pedersen proofs.
 //!
-//! Folds the batch into one randomized check: each proof is weighted by a fresh random scalar, so
-//! the batch accepts only if every proof is individually valid (Schwartz-Zippel). On failure it
-//! falls back to verifying each proof to report which ones failed.
+//! Folds every proof's two verification equations into a single variable-time multiscalar
+//! multiplication, each equation weighted by a fresh random scalar, so the batch is the identity
+//! iff every proof is individually valid (Schwartz-Zippel). On failure it falls back to verifying
+//! each proof to report which ones failed.
 
 use rand_core::CryptoRngCore;
 
@@ -102,14 +103,11 @@ impl BatchVerifier {
         self.verify_batch(rng)
     }
 
-    fn verify_one(&self, index: usize) -> Result<()> {
-        let entry = &self.entries[index];
-
+    fn entry_challenge(entry: &BatchEntry) -> Scalar {
         let mut transcript = Transcript::new();
         if let Some(context) = &entry.transcript_context {
             transcript.append_context(context);
         }
-
         transcript.append_parameters(
             &entry.params.generator_g().to_bytes(),
             &entry.params.generator_h().to_bytes(),
@@ -122,8 +120,12 @@ impl BatchVerifier {
             &entry.proof.commitment().r1().to_bytes(),
             &entry.proof.commitment().r2().to_bytes(),
         );
+        transcript.challenge_scalar()
+    }
 
-        let challenge = transcript.challenge_scalar();
+    fn verify_one(&self, index: usize) -> Result<()> {
+        let entry = &self.entries[index];
+        let challenge = Self::entry_challenge(entry);
 
         let g = entry.params.generator_g();
         let h = entry.params.generator_h();
@@ -133,13 +135,12 @@ impl BatchVerifier {
         let r2 = entry.proof.commitment().r2();
         let s = entry.proof.response().s();
 
-        let lhs1 = g * s;
-        let rhs1 = r1 + &(y1 * &challenge);
+        let neg_c = -&challenge;
+        let lhs1 =
+            Element::vartime_multiscalar_mul(&[s.clone(), neg_c.clone()], &[g.clone(), y1.clone()]);
+        let lhs2 = Element::vartime_multiscalar_mul(&[s.clone(), neg_c], &[h.clone(), y2.clone()]);
 
-        let lhs2 = h * s;
-        let rhs2 = r2 + &(y2 * &challenge);
-
-        if lhs1 != rhs1 || lhs2 != rhs2 {
+        if &lhs1 != r1 || &lhs2 != r2 {
             return Err(Error::VerificationFailed);
         }
 
@@ -147,74 +148,77 @@ impl BatchVerifier {
     }
 
     fn verify_batch<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Vec<Result<()>>> {
-        let n = self.entries.len();
+        let weights = (0..self.entries.len())
+            .map(|_| (Scalar::random(rng), Scalar::random(rng)))
+            .collect::<Vec<(Scalar, Scalar)>>();
+        let challenges = self
+            .entries
+            .iter()
+            .map(Self::entry_challenge)
+            .collect::<Vec<Scalar>>();
 
-        let mut coefficients = Vec::with_capacity(n);
-        let mut challenges = Vec::with_capacity(n);
-
-        for entry in &self.entries {
-            coefficients.push(Scalar::random(rng));
-
-            let mut transcript = Transcript::new();
-            if let Some(context) = &entry.transcript_context {
-                transcript.append_context(context);
-            }
-            transcript.append_parameters(
-                &entry.params.generator_g().to_bytes(),
-                &entry.params.generator_h().to_bytes(),
-            );
-            transcript.append_statement(
-                &entry.statement.y1().to_bytes(),
-                &entry.statement.y2().to_bytes(),
-            );
-            transcript.append_commitment(
-                &entry.proof.commitment().r1().to_bytes(),
-                &entry.proof.commitment().r2().to_bytes(),
-            );
-
-            challenges.push(transcript.challenge_scalar());
-        }
-
-        let batch_valid = self.verify_batch_equations(&coefficients, &challenges);
-
-        if batch_valid {
-            Ok((0..n).map(|_| Ok(())).collect())
+        if self.verify_batch_equation(&weights, &challenges) {
+            Ok(self.entries.iter().map(|_| Ok(())).collect())
         } else {
             Ok(self.verify_individually())
         }
     }
 
-    fn verify_batch_equations(&self, coefficients: &[Scalar], challenges: &[Scalar]) -> bool {
-        let n = self.entries.len();
+    /// Folds every proof's two verification equations into one
+    /// randomized multiscalar multiplication that is the identity iff each proof is
+    /// individually valid.
+    fn verify_batch_equation(&self, weights: &[(Scalar, Scalar)], challenges: &[Scalar]) -> bool {
+        let per_proof = self.entries.iter().zip(weights).zip(challenges).flat_map(
+            |((entry, (alpha, beta)), challenge)| {
+                let y1 = entry.statement.y1();
+                let y2 = entry.statement.y2();
+                let r1 = entry.proof.commitment().r1();
+                let r2 = entry.proof.commitment().r2();
 
-        let mut lhs1 = Element::identity();
-        let mut rhs1 = Element::identity();
-        let mut lhs2 = Element::identity();
-        let mut rhs2 = Element::identity();
+                [
+                    (-alpha, r1.clone()),
+                    (-beta, r2.clone()),
+                    (-(alpha * challenge), y1.clone()),
+                    (-(beta * challenge), y2.clone()),
+                ]
+            },
+        );
 
-        for i in 0..n {
-            let entry = &self.entries[i];
-            let alpha = &coefficients[i];
-            let challenge = &challenges[i];
+        let first = &self.entries[0].params;
+        let shared = self.entries.iter().all(|e| {
+            e.params.generator_g() == first.generator_g()
+                && e.params.generator_h() == first.generator_h()
+        });
 
-            let g = entry.params.generator_g();
-            let h = entry.params.generator_h();
-            let y1 = entry.statement.y1();
-            let y2 = entry.statement.y2();
-            let r1 = entry.proof.commitment().r1();
-            let r2 = entry.proof.commitment().r2();
-            let s = entry.proof.response().s();
+        let generators: Vec<(Scalar, Element)> = if shared {
+            let (sum_alpha_s, sum_beta_s) = self.entries.iter().zip(weights).fold(
+                (Scalar::zero(), Scalar::zero()),
+                |(sa, sb), (entry, (alpha, beta))| {
+                    let s = entry.proof.response().s();
+                    (sa + &(alpha * s), sb + &(beta * s))
+                },
+            );
+            vec![
+                (sum_alpha_s, first.generator_g().clone()),
+                (sum_beta_s, first.generator_h().clone()),
+            ]
+        } else {
+            self.entries
+                .iter()
+                .zip(weights)
+                .flat_map(|(entry, (alpha, beta))| {
+                    let s = entry.proof.response().s();
+                    [
+                        (alpha * s, entry.params.generator_g().clone()),
+                        (beta * s, entry.params.generator_h().clone()),
+                    ]
+                })
+                .collect()
+        };
 
-            let alpha_s = alpha * s;
+        let (scalars, points): (Vec<Scalar>, Vec<Element>) = per_proof.chain(generators).unzip();
 
-            lhs1 += g * &alpha_s;
-            rhs1 += (r1 * alpha) + (y1 * challenge);
-
-            lhs2 += h * &alpha_s;
-            rhs2 += (r2 * alpha) + (y2 * challenge);
-        }
-
-        lhs1 == rhs1 && lhs2 == rhs2
+        Element::vartime_multiscalar_mul(&scalars, &points).is_identity()
     }
 
     fn verify_individually(&self) -> Vec<Result<()>> {
@@ -302,6 +306,28 @@ mod tests {
 
         let results = batch.verify(&mut rng).unwrap();
         assert_eq!(results.len(), 10);
+        assert!(results.iter().all(|r| r.is_ok()));
+    }
+
+    #[test]
+    fn batch_with_distinct_parameters() {
+        let mut rng = OsRng;
+        let params1 = Parameters::new();
+        let params2 =
+            Parameters::with_generators(Element::generator_h(), Element::generator_g()).unwrap();
+
+        let mut batch = BatchVerifier::new();
+        for params in [params1, params2] {
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
+            let prover = Prover::new(params.clone(), witness);
+            let statement = prover.statement().clone();
+            let proof = prover.prove(&mut rng).unwrap();
+            batch.add(params, statement, proof).unwrap();
+        }
+
+        let results = batch.verify(&mut rng).unwrap();
+        assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.is_ok()));
     }
 
