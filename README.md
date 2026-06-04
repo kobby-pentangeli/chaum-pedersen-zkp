@@ -14,16 +14,12 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 **Key Features:**
 
 - **Zero-knowledge authentication**: Server never sees passwords
-- **High performance**: 0.14ms proof generation, 0.16ms verification
-- **Batch verification**: 30-50% faster for verifying multiple proofs simultaneously
-- **Constant-time operations**: Protection against timing attacks
-- **Memory zeroization**: Automatic clearing of sensitive data
-- **gRPC API**: Server with TLS, rate limiting, metrics
-- **Ristretto255**: Fast, prime-order elliptic curve with ~128-bit security
-
-## TODO
-
-- [x] **Security Audit**
+- **High performance**: ~0.14 ms proof generation, ~0.12 ms verification (single proof)
+- **Batch verification**: a single multi-scalar multiplication, faster than individual verification at every batch size (≈26% at one proof to ≈59% at one hundred; run `cargo bench`)
+- **Constant-time secret handling**: secret-dependent operations run in constant time; public verification uses variable-time multi-scalar multiplication
+- **Memory zeroization**: secret witnesses and nonces are cleared on drop
+- **gRPC API**: per-peer rate limiting, metrics, optional TLS, session lifecycle
+- **Ristretto255**: prime-order elliptic curve with ~128-bit security
 
 ## Architecture
 
@@ -31,10 +27,10 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 src/
 ├── primitives/        # Core cryptographic primitives
 │   ├── ristretto.rs   # Ristretto255 group implementation
-│   ├── rng.rs         # Secure random number generator
+│   ├── domain.rs      # Centralized domain-separation tags
 │   ├── gadgets.rs     # Parameters, Statement, Witness, Proof
 │   └── transcript.rs  # Fiat-Shamir transform
-├── prover/            # Client-side proof generation
+├── prover.rs          # Client-side proof generation
 ├── verifier/          # Server-side proof verification
 │   ├── config.rs      # Configuration with .env support
 │   ├── service.rs     # gRPC service implementation
@@ -199,6 +195,8 @@ Available Commands:
   /login <user> <pass>                 - Authenticate (prove knowledge of password)
   /batch-register <u1,u2> <p1,p2>      - Batch register multiple users
   /batch-login <u1,u2> <p1,p2>         - Batch authenticate multiple users
+  /whoami                              - Validate the current session token
+  /logout                              - Revoke the current session token
   /status                              - Show connection status
   /help                                - Show this help message
   /quit or /exit                       - Exit gracefully
@@ -220,6 +218,12 @@ zkp-client@http://127.0.0.1:50051> /login alice mypassword
   Challenge received, expires: 1732409876
 Authenticated: Proof verified successfully
   Session token: a1b2c3d4e5f6...
+
+zkp-client@http://127.0.0.1:50051> /whoami
+Session valid for 'alice', expires: 1732413476
+
+zkp-client@http://127.0.0.1:50051> /logout
+Logged out: Session terminated
 
 zkp-client@http://127.0.0.1:50051> /batch-register bob,charlie pass1,pass2
 Registering 2 users...
@@ -274,17 +278,16 @@ cargo +nightly fuzz run fuzz_proof_deserialization -- -jobs=4
 
 ```rust
 use chaum_pedersen::{
-    Ristretto255, SecureRng, Parameters, Witness, Statement,
-    Prover, Verifier, Transcript
+    OsRng, Parameters, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 
 // Setup parameters
 let params = Parameters::new();
-let mut rng = SecureRng::new();
+let mut rng = OsRng;
 
 // Prover: Generate secret and create statement
-let x = Ristretto255::random_scalar(&mut rng);
-let witness = Witness::new(x);
+let x = Scalar::random(&mut rng);
+let witness = Witness::new(x).unwrap();
 let statement = Statement::from_witness(&params, &witness);
 
 // Prover: Generate proof (Fiat-Shamir)
@@ -309,7 +312,7 @@ let prover = Prover::new(params.clone(), witness);
 let (commitment, nonce) = prover.commit(&mut rng);
 
 // Verifier: Challenge (can be sent over network)
-let challenge = Ristretto255::random_scalar(&mut rng);
+let challenge = Scalar::random(&mut rng);
 
 // Prover: Response phase
 let response = prover.respond(&nonce, &challenge);
@@ -322,7 +325,7 @@ assert!(verifier.verify_response(&challenge, &proof).is_ok());
 
 ### Batch Verification
 
-Batch verification provides 30-50% better performance when verifying multiple proofs:
+Batch verification folds many proofs into one multi-scalar multiplication and is faster than individual verification at every batch size:
 
 ```rust
 use chaum_pedersen::BatchVerifier;
@@ -332,8 +335,8 @@ let mut batch_verifier = BatchVerifier::new();
 
 // Add multiple proofs to batch
 for i in 0..10 {
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
     let prover = Prover::new(params.clone(), witness);
     let statement = prover.statement().clone();
 
@@ -364,9 +367,12 @@ for (i, result) in results.iter().enumerate() {
 ```toml
 [features]
 default = []
-grpc = ["tonic", "prost", "tokio"]           # gRPC support
-server = ["grpc", "tonic-health", "tower", "metrics", "crossterm", "clap", "tracing"]
-client = ["grpc", "clap", "argon2", "crossterm", "tracing"]
+# gRPC definitions shared by server and client
+grpc = ["tonic", "tonic-prost", "prost", "tokio"]
+# Server: gRPC service, state, config, metrics, REPL
+server = ["grpc", "tonic-health", "tracing", "tracing-subscriber", "metrics", "metrics-exporter-prometheus", "figment", "dotenvy", "hex", "crossterm", "clap"]
+# Client: gRPC client, password hashing, REPL
+client = ["grpc", "clap", "argon2", "figment", "crossterm", "tracing", "tracing-subscriber"]
 ```
 
 **Build examples:**
