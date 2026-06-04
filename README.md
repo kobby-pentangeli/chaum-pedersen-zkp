@@ -18,7 +18,7 @@ This implementation allows a **prover (client)** to demonstrate knowledge of a s
 - **Batch verification**: a single multi-scalar multiplication, faster than individual verification at every batch size (≈26% at one proof to ≈59% at one hundred; run `cargo bench`)
 - **Constant-time secret handling**: secret-dependent operations run in constant time; public verification uses variable-time multi-scalar multiplication
 - **Memory zeroization**: secret witnesses and nonces are cleared on drop
-- **gRPC API**: per-peer rate limiting, metrics, optional TLS, session lifecycle
+- **gRPC API**: per-peer rate limiting, Prometheus metrics, session lifecycle
 - **Ristretto255**: prime-order elliptic curve with ~128-bit security
 
 ## Architecture
@@ -153,10 +153,10 @@ Available Commands:
 ```bash
 SERVER_HOST=127.0.0.1                    # Bind address
 SERVER_PORT=50051                        # gRPC port
-METRICS_ENABLED=true                     # Enable Prometheus metrics
-METRICS_PORT=9090                        # Metrics endpoint port
-RATE_LIMIT_RPM=100                       # Requests per minute
-RATE_LIMIT_BURST=50                      # Burst capacity
+SERVER_METRICS_ENABLED=false             # Enable Prometheus metrics
+SERVER_METRICS_PORT=9090                 # Metrics endpoint port
+SERVER_RATE_LIMIT_RPM=100                # Requests per minute
+SERVER_RATE_LIMIT_BURST=50               # Burst capacity
 ```
 
 ### Run Client (Prover)
@@ -369,10 +369,10 @@ for (i, result) in results.iter().enumerate() {
 default = []
 # gRPC definitions shared by server and client
 grpc = ["tonic", "tonic-prost", "prost", "tokio"]
-# Server: gRPC service, state, config, metrics, REPL
-server = ["grpc", "tonic-health", "tracing", "tracing-subscriber", "metrics", "metrics-exporter-prometheus", "figment", "dotenvy", "hex", "crossterm", "clap"]
+# Server: gRPC service, state, metrics, REPL
+server = ["grpc", "tonic-health", "tracing", "tracing-subscriber", "metrics", "metrics-exporter-prometheus", "dotenvy", "hex", "crossterm", "clap"]
 # Client: gRPC client, password hashing, REPL
-client = ["grpc", "clap", "argon2", "figment", "crossterm", "tracing", "tracing-subscriber"]
+client = ["grpc", "clap", "argon2", "crossterm", "tracing", "tracing-subscriber"]
 ```
 
 **Build examples:**
