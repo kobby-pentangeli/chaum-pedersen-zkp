@@ -16,7 +16,7 @@ pub mod state;
 
 pub use batch::BatchVerifier;
 #[cfg(feature = "server")]
-pub use config::{RateLimiter, ServerConfig};
+pub use config::RateLimiter;
 #[cfg(feature = "server")]
 pub use service::AuthServiceImpl;
 #[cfg(feature = "server")]

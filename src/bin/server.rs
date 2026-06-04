@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chaum_pedersen::proto::auth_service_server::AuthServiceServer;
-use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerConfig, ServerState};
+use chaum_pedersen::verifier::{AuthServiceImpl, RateLimiter, ServerState};
 use clap::Parser;
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tokio::{signal, time};
 use tonic::transport::Server;
 use tonic_health::server::{HealthReporter, health_reporter};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -31,19 +31,19 @@ struct Args {
     port: u16,
 
     /// Enable metrics endpoint
-    #[arg(long, env = "METRICS_ENABLED", default_value = "false")]
+    #[arg(long, env = "SERVER_METRICS_ENABLED", default_value = "false")]
     metrics: bool,
 
     /// Metrics port
-    #[arg(long, env = "METRICS_PORT", default_value = "9090")]
+    #[arg(long, env = "SERVER_METRICS_PORT", default_value = "9090")]
     metrics_port: u16,
 
     /// Rate limit requests per minute
-    #[arg(long, env = "RATE_LIMIT_RPM", default_value = "100")]
+    #[arg(long, env = "SERVER_RATE_LIMIT_RPM", default_value = "100")]
     rate_limit: u64,
 
     /// Rate limit burst
-    #[arg(long, env = "RATE_LIMIT_BURST", default_value = "50")]
+    #[arg(long, env = "SERVER_RATE_LIMIT_BURST", default_value = "50")]
     rate_burst: u64,
 }
 
@@ -139,6 +139,10 @@ fn display_prompt(addr: &str) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load a local `.env` (if present) before parsing, so its values feed the
+    // environment-backed CLI arguments below.
+    let _ = dotenvy::dotenv();
+
     let args = Args::parse();
 
     tracing_subscriber::registry()
@@ -150,15 +154,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     display_banner();
 
-    let config = ServerConfig::from_env().unwrap_or_else(|e| {
-        warn!("Failed to load server configuration from `.env`: {e}");
-        info!("Using default configuration");
-        ServerConfig::default()
-    });
-
-    if let Err(e) = config.validate() {
-        println_colored(Color::Red, &format!("Configuration validation failed: {e}"));
-        return Err(format!("Invalid configuration: {e}").into());
+    if args.rate_limit == 0 || args.rate_burst == 0 {
+        let msg = "rate limit (requests/minute) and burst must both be non-zero";
+        println_colored(Color::Red, &format!("Configuration error: {msg}"));
+        return Err(msg.into());
     }
 
     let state = ServerState::new();
