@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "server")]
@@ -10,11 +11,20 @@ use super::state::{ServerState, UserData};
 use crate::proto::auth_service_server::AuthService;
 use crate::proto::{
     BatchRegistrationRequest, BatchRegistrationResponse, BatchVerificationRequest,
-    BatchVerificationResponse, ChallengeRequest, ChallengeResponse, RegistrationRequest,
-    RegistrationResponse, RegistrationResult, VerificationRequest, VerificationResponse,
-    VerificationResult,
+    BatchVerificationResponse, ChallengeRequest, ChallengeResponse, LogoutResponse,
+    RegistrationRequest, RegistrationResponse, RegistrationResult, SessionRequest, SessionResponse,
+    VerificationRequest, VerificationResponse, VerificationResult,
 };
 use crate::{BatchVerifier, Element, Parameters, Proof, Statement, Transcript, Verifier};
+
+/// Byte length of a server-issued challenge identifier.
+const CHALLENGE_ID_LEN: usize = 32;
+
+/// Byte length of the random material behind a session token (hex-encoded on the wire).
+const SESSION_TOKEN_BYTES: usize = 32;
+
+/// Character length of a hex-encoded session token.
+const SESSION_TOKEN_HEX_LEN: usize = SESSION_TOKEN_BYTES * 2;
 
 /// gRPC service implementation for Chaum-Pedersen authentication.
 pub struct AuthServiceImpl {
@@ -23,12 +33,20 @@ pub struct AuthServiceImpl {
 }
 
 impl AuthServiceImpl {
-    /// Creates a new authentication service with the given state and rate limiter.
     pub fn new(state: ServerState, rate_limiter: RateLimiter) -> Self {
         Self {
             state,
             rate_limiter,
         }
+    }
+
+    /// Resolves the caller's peer IP for rate-limiting. Requests without a transport
+    /// address (e.g. in-process calls) collapse onto a single unspecified bucket.
+    fn peer_ip<T>(request: &Request<T>) -> IpAddr {
+        request
+            .remote_addr()
+            .map(|addr| addr.ip())
+            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
     }
 
     #[allow(clippy::result_large_err)]
@@ -63,7 +81,8 @@ impl AuthService for AuthServiceImpl {
         let start = Instant::now();
         counter!("auth.register.requests").increment(1);
 
-        self.rate_limiter.check_rate_limit().await?;
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
 
         let req = request.into_inner();
 
@@ -124,7 +143,8 @@ impl AuthService for AuthServiceImpl {
         let start = Instant::now();
         counter!("auth.register_batch.requests").increment(1);
 
-        self.rate_limiter.check_rate_limit().await?;
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
 
         let req = request.into_inner();
 
@@ -260,7 +280,8 @@ impl AuthService for AuthServiceImpl {
         let start = Instant::now();
         counter!("auth.challenge.requests").increment(1);
 
-        self.rate_limiter.check_rate_limit().await?;
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
 
         let req = request.into_inner();
 
@@ -273,7 +294,7 @@ impl AuthService for AuthServiceImpl {
             .ok_or_else(|| Status::not_found(format!("User '{}' not found", req.user_id)))?;
 
         let mut rng = OsRng;
-        let mut challenge_id = vec![0u8; 32];
+        let mut challenge_id = vec![0u8; CHALLENGE_ID_LEN];
         rng.fill_bytes(&mut challenge_id);
 
         let result = self
@@ -307,7 +328,8 @@ impl AuthService for AuthServiceImpl {
         let start = Instant::now();
         counter!("auth.verify.requests").increment(1);
 
-        self.rate_limiter.check_rate_limit().await?;
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
 
         let req = request.into_inner();
 
@@ -317,7 +339,7 @@ impl AuthService for AuthServiceImpl {
             return Err(Status::invalid_argument("Empty challenge ID"));
         }
 
-        if req.challenge_id.len() > 64 {
+        if req.challenge_id.len() > CHALLENGE_ID_LEN {
             return Err(Status::invalid_argument("Challenge ID too long"));
         }
 
@@ -359,7 +381,7 @@ impl AuthService for AuthServiceImpl {
             .map_err(|e| Status::permission_denied(format!("Verification failed: {e}")))?;
 
         let mut rng = OsRng;
-        let mut session_token = vec![0u8; 32];
+        let mut session_token = vec![0u8; SESSION_TOKEN_BYTES];
         rng.fill_bytes(&mut session_token);
         let session_token_hex = hex::encode(&session_token);
 
@@ -393,7 +415,8 @@ impl AuthService for AuthServiceImpl {
         let start = Instant::now();
         counter!("auth.verify_batch.requests").increment(1);
 
-        self.rate_limiter.check_rate_limit().await?;
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
 
         let req = request.into_inner();
 
@@ -435,7 +458,7 @@ impl AuthService for AuthServiceImpl {
                     )));
                 }
 
-                if challenge_id.len() > 64 {
+                if challenge_id.len() > CHALLENGE_ID_LEN {
                     return Err(Status::invalid_argument(format!(
                         "Challenge ID too long for proof {}",
                         i
@@ -533,7 +556,7 @@ impl AuthService for AuthServiceImpl {
                         batch_index += 1;
 
                         if verify_result.is_ok() {
-                            let mut session_token_bytes = vec![0u8; 32];
+                            let mut session_token_bytes = vec![0u8; SESSION_TOKEN_BYTES];
                             rng.fill_bytes(&mut session_token_bytes);
                             let session_token_hex = hex::encode(&session_token_bytes);
 
@@ -595,6 +618,72 @@ impl AuthService for AuthServiceImpl {
 
         Ok(Response::new(BatchVerificationResponse {
             results: verification_results,
+        }))
+    }
+
+    async fn validate_session(
+        &self,
+        request: Request<SessionRequest>,
+    ) -> Result<Response<SessionResponse>, Status> {
+        let start = Instant::now();
+        counter!("auth.validate_session.requests").increment(1);
+
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
+
+        let req = request.into_inner();
+
+        if req.session_token.len() != SESSION_TOKEN_HEX_LEN {
+            return Err(Status::invalid_argument("Invalid session token"));
+        }
+
+        let response = match self.state.validate_session(&req.session_token).await {
+            Ok(session) => SessionResponse {
+                valid: true,
+                user_id: session.user_id,
+                expires_at: i64::try_from(session.expires_at).unwrap_or(i64::MAX),
+            },
+            Err(_) => SessionResponse {
+                valid: false,
+                user_id: String::new(),
+                expires_at: 0,
+            },
+        };
+
+        histogram!("auth.validate_session.duration").record(start.elapsed().as_secs_f64());
+        if response.valid {
+            counter!("auth.validate_session.success").increment(1);
+        } else {
+            counter!("auth.validate_session.failure").increment(1);
+        }
+
+        Ok(Response::new(response))
+    }
+
+    async fn logout(
+        &self,
+        request: Request<SessionRequest>,
+    ) -> Result<Response<LogoutResponse>, Status> {
+        let start = Instant::now();
+        counter!("auth.logout.requests").increment(1);
+
+        let peer = Self::peer_ip(&request);
+        self.rate_limiter.check_rate_limit(peer).await?;
+
+        let req = request.into_inner();
+
+        if req.session_token.len() != SESSION_TOKEN_HEX_LEN {
+            return Err(Status::invalid_argument("Invalid session token"));
+        }
+
+        let _ = self.state.revoke_session(&req.session_token).await;
+
+        histogram!("auth.logout.duration").record(start.elapsed().as_secs_f64());
+        counter!("auth.logout.success").increment(1);
+
+        Ok(Response::new(LogoutResponse {
+            success: true,
+            message: "Session terminated".to_string(),
         }))
     }
 }

@@ -240,6 +240,38 @@ impl ServerState {
         Ok(())
     }
 
+    pub async fn validate_session(&self, token: &str) -> Result<SessionData, StateError> {
+        let mut sessions = self.sessions.write().await;
+        let mut user_sessions = self.user_sessions.write().await;
+
+        let session = sessions
+            .get(token)
+            .ok_or(StateError::SessionNotFound)?
+            .clone();
+
+        if session.is_expired() {
+            sessions.remove(token);
+            if let Some(tokens) = user_sessions.get_mut(&session.user_id) {
+                tokens.retain(|t| t != token);
+            }
+            return Err(StateError::SessionNotFound);
+        }
+
+        Ok(session)
+    }
+
+    pub async fn revoke_session(&self, token: &str) -> Result<(), StateError> {
+        let mut sessions = self.sessions.write().await;
+        let mut user_sessions = self.user_sessions.write().await;
+
+        let session = sessions.remove(token).ok_or(StateError::SessionNotFound)?;
+        if let Some(tokens) = user_sessions.get_mut(&session.user_id) {
+            tokens.retain(|t| t != token);
+        }
+
+        Ok(())
+    }
+
     pub async fn cleanup_expired_sessions(&self) {
         let mut sessions = self.sessions.write().await;
         let mut user_sessions = self.user_sessions.write().await;
@@ -287,5 +319,53 @@ impl Clone for ServerState {
             sessions: Arc::clone(&self.sessions),
             user_sessions: Arc::clone(&self.user_sessions),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn validate_returns_live_session() {
+        let state = ServerState::new();
+        state
+            .create_session("token".to_string(), "alice".to_string())
+            .await
+            .unwrap();
+
+        let session = state.validate_session("token").await.unwrap();
+        assert_eq!(session.user_id, "alice");
+    }
+
+    #[tokio::test]
+    async fn validate_rejects_unknown_session() {
+        let state = ServerState::new();
+        assert!(matches!(
+            state.validate_session("missing").await,
+            Err(StateError::SessionNotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn revoke_removes_session() {
+        let state = ServerState::new();
+        state
+            .create_session("token".to_string(), "alice".to_string())
+            .await
+            .unwrap();
+
+        state.revoke_session("token").await.unwrap();
+        assert!(state.validate_session("token").await.is_err());
+        assert_eq!(state.session_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn revoke_rejects_unknown_session() {
+        let state = ServerState::new();
+        assert!(matches!(
+            state.revoke_session("missing").await,
+            Err(StateError::SessionNotFound)
+        ));
     }
 }

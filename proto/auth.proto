@@ -8,6 +8,8 @@ service AuthService {
   rpc CreateChallenge(ChallengeRequest) returns (ChallengeResponse);
   rpc VerifyProof(VerificationRequest) returns (VerificationResponse);
   rpc VerifyProofBatch(BatchVerificationRequest) returns (BatchVerificationResponse);
+  rpc ValidateSession(SessionRequest) returns (SessionResponse);
+  rpc Logout(SessionRequest) returns (LogoutResponse);
 }
 
 message RegistrationRequest {
@@ -69,6 +71,21 @@ message BatchRegistrationResponse {
 }
 
 message RegistrationResult {
+  bool success = 1;
+  string message = 2;
+}
+
+message SessionRequest {
+  string session_token = 1;
+}
+
+message SessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  int64 expires_at = 3;
+}
+
+message LogoutResponse {
   bool success = 1;
   string message = 2;
 }

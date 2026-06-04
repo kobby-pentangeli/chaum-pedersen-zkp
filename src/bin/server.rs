@@ -163,31 +163,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = ServerState::new();
     let rate_limiter = RateLimiter::new(args.rate_limit, args.rate_burst);
+    let cleanup_state = state.clone();
+    let cleanup_limiter = rate_limiter.clone();
     let service = AuthServiceImpl::new(state.clone(), rate_limiter);
 
-    let cleanup_state = state.clone();
     tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(60));
         loop {
-            let state_clone = cleanup_state.clone();
-            let cleanup_handle = tokio::spawn(async move {
-                let mut interval = time::interval(Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-                    state_clone.cleanup_expired_challenges().await;
-                    state_clone.cleanup_expired_sessions().await;
-                }
-            });
-
-            match cleanup_handle.await {
-                Ok(()) => {
-                    error!("Cleanup task terminated unexpectedly, restarting...");
-                }
-                Err(e) => {
-                    error!("Cleanup task panicked: {:?}, restarting...", e);
-                }
-            }
-
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            interval.tick().await;
+            cleanup_state.cleanup_expired_challenges().await;
+            cleanup_state.cleanup_expired_sessions().await;
+            cleanup_limiter.evict_idle().await;
         }
     });
 

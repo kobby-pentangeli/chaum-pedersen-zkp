@@ -45,6 +45,9 @@ pub enum StateError {
     #[error("invalid or expired challenge")]
     ChallengeNotFound,
 
+    #[error("invalid or expired session")]
+    SessionNotFound,
+
     #[error("too many active challenges for user")]
     TooManyChallenges,
 
