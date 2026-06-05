@@ -4,10 +4,10 @@ use argon2::Argon2;
 use chaum_pedersen::proto::auth_service_client::AuthServiceClient;
 use chaum_pedersen::proto::{
     BatchRegistrationRequest, BatchVerificationRequest, ChallengeRequest, RegistrationRequest,
-    VerificationRequest,
+    SessionRequest, VerificationRequest,
 };
 use chaum_pedersen::{
-    Parameters, Prover, Ristretto255, Scalar, SecureRng, Statement, Transcript, Witness,
+    CIPHERSUITE, OsRng, Parameters, Prover, Scalar, Statement, Transcript, Witness,
 };
 use clap::Parser;
 use crossterm::execute;
@@ -38,6 +38,8 @@ enum Command {
     BatchRegister(Vec<String>, Vec<String>),
     Login(String, String),
     BatchLogin(Vec<String>, Vec<String>),
+    Validate,
+    Logout,
     Status,
     Help,
     Quit,
@@ -112,6 +114,8 @@ impl Command {
                 }
                 Command::BatchLogin(users, passwords)
             }
+            "/whoami" | "/validate" => Command::Validate,
+            "/logout" => Command::Logout,
             "/status" | "/st" => Command::Status,
             "/help" | "/h" | "/?" => Command::Help,
             "/quit" | "/exit" | "/q" => Command::Quit,
@@ -158,6 +162,8 @@ fn display_help() {
     println!("  /login <user> <pass>                 - Authenticate (prove knowledge of password)");
     println!("  /batch-register <u1,u2> <p1,p2>      - Batch register multiple users");
     println!("  /batch-login <u1,u2> <p1,p2>         - Batch authenticate multiple users");
+    println!("  /whoami                              - Validate the current session token");
+    println!("  /logout                              - Revoke the current session token");
     println!("  /status                              - Show connection status");
     println!("  /help                                - Show this help message");
     println!("  /quit or /exit                       - Exit gracefully");
@@ -177,7 +183,7 @@ fn display_prompt(server: &str) {
 }
 
 fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
-    let salt_input = format!("chaum-pedersen-v1.0.0-{}", user_id);
+    let salt_input = format!("{CIPHERSUITE}/{user_id}");
     let salt_hash = Sha256::digest(salt_input.as_bytes());
     let salt = &salt_hash[0..16];
 
@@ -199,7 +205,7 @@ fn password_to_scalar(password: &str, user_id: &str) -> Scalar {
     let scalar = DalekScalar::from_bytes_mod_order_wide(&hash.into());
 
     let scalar_bytes = scalar.to_bytes();
-    Ristretto255::scalar_from_bytes(&scalar_bytes)
+    Scalar::from_bytes(&scalar_bytes)
         .unwrap_or_else(|e| panic!("Failed to create scalar from password hash: {e}"))
 }
 
@@ -210,11 +216,11 @@ async fn do_register(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let x = password_to_scalar(password, user);
     let params = Parameters::new();
-    let witness = Witness::new(x);
+    let witness = Witness::new(x)?;
     let statement = Statement::from_witness(&params, &witness);
 
-    let y1_bytes = Ristretto255::element_to_bytes(statement.y1());
-    let y2_bytes = Ristretto255::element_to_bytes(statement.y2());
+    let y1_bytes = statement.y1().to_bytes().to_vec();
+    let y2_bytes = statement.y2().to_bytes().to_vec();
 
     let request = Request::new(RegistrationRequest {
         user_id: user.to_string(),
@@ -236,7 +242,7 @@ async fn do_login(
     client: &mut AuthServiceClient<Channel>,
     user: &str,
     password: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let challenge_req = Request::new(ChallengeRequest {
         user_id: user.to_string(),
     });
@@ -252,15 +258,15 @@ async fn do_login(
 
     let x = password_to_scalar(password, user);
     let params = Parameters::new();
-    let witness = Witness::new(x);
+    let witness = Witness::new(x)?;
     let prover = Prover::new(params, witness);
 
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     let mut transcript = Transcript::new();
     transcript.append_context(&challenge_resp.challenge_id);
 
     let proof = prover.prove_with_transcript(&mut rng, &mut transcript)?;
-    let proof_bytes = proof.to_bytes()?;
+    let proof_bytes = proof.to_bytes().to_vec();
 
     let verify_req = Request::new(VerificationRequest {
         user_id: user.to_string(),
@@ -275,11 +281,54 @@ async fn do_login(
             Color::Green,
             &format!("Authenticated: {}", verify_resp.message),
         );
-        if let Some(token) = verify_resp.session_token {
+        if let Some(token) = &verify_resp.session_token {
             println_colored(Color::Cyan, &format!("  Session token: {token}"));
         }
+        Ok(verify_resp.session_token)
     } else {
         println_colored(Color::Red, &format!("Failed: {}", verify_resp.message));
+        Ok(None)
+    }
+}
+
+async fn do_validate(
+    client: &mut AuthServiceClient<Channel>,
+    token: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = Request::new(SessionRequest {
+        session_token: token.to_string(),
+    });
+
+    let response = client.validate_session(request).await?.into_inner();
+
+    if response.valid {
+        println_colored(
+            Color::Green,
+            &format!(
+                "Session valid for '{}', expires: {}",
+                response.user_id, response.expires_at
+            ),
+        );
+    } else {
+        println_colored(Color::Yellow, "Session is invalid or expired");
+    }
+    Ok(())
+}
+
+async fn do_logout(
+    client: &mut AuthServiceClient<Channel>,
+    token: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = Request::new(SessionRequest {
+        session_token: token.to_string(),
+    });
+
+    let response = client.logout(request).await?.into_inner();
+
+    if response.success {
+        println_colored(Color::Green, &format!("Logged out: {}", response.message));
+    } else {
+        println_colored(Color::Red, &format!("Logout failed: {}", response.message));
     }
     Ok(())
 }
@@ -298,11 +347,11 @@ async fn do_batch_register(
     for (i, user) in users.iter().enumerate() {
         let x = password_to_scalar(&passwords[i], user);
         let params = Parameters::new();
-        let witness = Witness::new(x);
+        let witness = Witness::new(x)?;
         let statement = Statement::from_witness(&params, &witness);
 
-        y1_values.push(Ristretto255::element_to_bytes(statement.y1()));
-        y2_values.push(Ristretto255::element_to_bytes(statement.y2()));
+        y1_values.push(statement.y1().to_bytes().to_vec());
+        y2_values.push(statement.y2().to_bytes().to_vec());
     }
 
     let request = Request::new(BatchRegistrationRequest {
@@ -362,15 +411,15 @@ async fn do_batch_login(
 
         let x = password_to_scalar(&passwords[i], user);
         let params = Parameters::new();
-        let witness = Witness::new(x);
+        let witness = Witness::new(x)?;
         let prover = Prover::new(params, witness);
 
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let mut transcript = Transcript::new();
         transcript.append_context(&challenge_resp.challenge_id);
 
         let proof = prover.prove_with_transcript(&mut rng, &mut transcript)?;
-        proofs.push(proof.to_bytes()?);
+        proofs.push(proof.to_bytes().to_vec());
     }
 
     let request = Request::new(BatchVerificationRequest {
@@ -439,6 +488,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin);
     let mut line = String::new();
+    let mut session_token: Option<String> = None;
 
     loop {
         display_prompt(&args.server);
@@ -484,16 +534,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println_colored(Color::Red, &format!("Error: {e}"));
                 }
             }
-            Command::Login(user, password) => {
-                if let Err(e) = do_login(&mut client, &user, &password).await {
-                    println_colored(Color::Red, &format!("Error: {e}"));
-                }
-            }
+            Command::Login(user, password) => match do_login(&mut client, &user, &password).await {
+                Ok(token) => session_token = token.or(session_token),
+                Err(e) => println_colored(Color::Red, &format!("Error: {e}")),
+            },
             Command::BatchLogin(users, passwords) => {
                 if let Err(e) = do_batch_login(&mut client, &users, &passwords).await {
                     println_colored(Color::Red, &format!("Error: {e}"));
                 }
             }
+            Command::Validate => match &session_token {
+                Some(token) => {
+                    if let Err(e) = do_validate(&mut client, token).await {
+                        println_colored(Color::Red, &format!("Error: {e}"));
+                    }
+                }
+                None => {
+                    println_colored(Color::Yellow, "No active session. Use /login first.");
+                }
+            },
+            Command::Logout => match &session_token {
+                Some(token) => {
+                    if let Err(e) = do_logout(&mut client, token).await {
+                        println_colored(Color::Red, &format!("Error: {e}"));
+                    } else {
+                        session_token = None;
+                    }
+                }
+                None => {
+                    println_colored(Color::Yellow, "No active session. Use /login first.");
+                }
+            },
             Command::Status => {
                 println!();
                 println_colored(Color::Cyan, "Client Status:");

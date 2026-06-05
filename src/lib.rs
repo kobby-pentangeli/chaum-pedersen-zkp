@@ -1,68 +1,44 @@
-//! # Chaum-Pedersen Zero-Knowledge Protocol Library
+//! # Chaum-Pedersen Zero-Knowledge Protocol
 //!
-//! ## Overview
+//! Prove knowledge of a discrete logarithm `x` with `y1 = g^x` and `y2 = h^x` without revealing
+//! `x`, over Ristretto255. Supports interactive and non-interactive (Fiat-Shamir) variants, batch
+//! verification, and an optional gRPC authentication service.
 //!
-//! The Chaum-Pedersen protocol allows a prover to demonstrate knowledge of a discrete logarithm
-//! `x` such that `y1 = g^x` and `y2 = h^x` without revealing `x` itself. This implementation
-//! supports both interactive and non-interactive (Fiat-Shamir) proof variants.
-//!
-//! ## Features
-//!
-//! - **Ristretto255 implementation**: Fast, prime-order elliptic curve group
-//! - **Constant-time operations**: Protection against timing attacks
-//! - **Memory zeroization**: Automatic clearing of sensitive data
-//! - **Fiat-Shamir transform**: Non-interactive proofs with transcript support
-//! - **gRPC support**: Optional client-server authentication system
-//! - **Batch verification**: Efficient verification of multiple proofs
-//!
-//! ## Quick Start
+//! ## Quick start
 //!
 //! ```rust
 //! use chaum_pedersen::{
-//!     Ristretto255, SecureRng, Parameters, Witness, Statement, Prover, Verifier, Transcript
+//!     OsRng, Parameters, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 //! };
 //!
 //! let params = Parameters::new();
-//! let mut rng = SecureRng::new();
+//! let mut rng = OsRng;
 //!
-//! // Prover: Generate secret and create statement
-//! let x = Ristretto255::random_scalar(&mut rng);
-//! let witness = Witness::new(x);
+//! let x = Scalar::random(&mut rng);
+//! let witness = Witness::new(x).unwrap();
 //! let statement = Statement::from_witness(&params, &witness);
 //!
-//! // Prover: Generate proof with Fiat-Shamir
 //! let mut transcript = Transcript::new();
 //! let proof = Prover::new(params.clone(), witness)
 //!     .prove_with_transcript(&mut rng, &mut transcript)
 //!     .unwrap();
 //!
-//! // Verifier: Verify the proof
 //! let mut verify_transcript = Transcript::new();
 //! let verifier = Verifier::new(params, statement);
 //! assert!(verifier.verify_with_transcript(&proof, &mut verify_transcript).is_ok());
 //! ```
 //!
-//! ## Security Considerations
+//! Bind each proof to a unique transcript context to prevent replay; witnesses and nonces are
+//! zeroized on drop.
 //!
-//! - **Randomness**: Use `SecureRng` for all random scalar generation
-//! - **Transcript binding**: Use unique context data to prevent replay attacks
-//! - **Single-use challenges**: Never reuse challenges or proofs across sessions
-//! - **Constant-time**: All group operations are designed to resist timing attacks
+//! ## Feature flags
 //!
-//! ## Performance
-//!
-//! Benchmark results on M-series Mac:
-//! - Proof generation: ~144 microseconds
-//! - Proof verification: ~159 microseconds
-//! - Serialization/deserialization: ~7 microseconds
-//!
-//! ## Feature Flags
-//!
-//! - `server`: Enable server-side state management
-//! - `grpc`: Enable gRPC service definitions and implementations
+//! - `server`: server-side state management and the gRPC service.
+//! - `client`: the gRPC client.
+//! - `grpc`: gRPC definitions shared by `server` and `client`.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all)]
+#![warn(clippy::all)]
 
 pub mod error;
 pub mod primitives;
@@ -73,12 +49,14 @@ pub mod verifier;
 /// Generated protobuf types.
 #[allow(missing_docs)]
 pub mod proto {
-    include!("auth.rs");
+    include!(concat!(env!("OUT_DIR"), "/auth.rs"));
 }
 
 pub use error::Error;
+#[cfg(feature = "server")]
+pub use error::StateError;
 pub use primitives::{
-    Commitment, Element, Parameters, Proof, Response, Ristretto255, Scalar, SecureRng, Statement,
+    CIPHERSUITE, Commitment, Element, OsRng, Parameters, Proof, Response, Scalar, Statement,
     Transcript, Witness,
 };
 pub use prover::Prover;

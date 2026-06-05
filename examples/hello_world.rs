@@ -8,7 +8,7 @@
 //! - Verifying the proof
 
 use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    OsRng, Parameters, Proof, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 
 fn main() {
@@ -16,12 +16,12 @@ fn main() {
 
     println!("Step 1: Initialize parameters and RNG");
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     println!("  Using Ristretto255 group with default generators\n");
 
     println!("Step 2: Prover generates secret witness");
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).expect("Witness creation should succeed");
     println!("  Secret witness generated (automatically zeroized on drop)\n");
 
     println!("Step 3: Compute public statement from witness");
@@ -38,7 +38,7 @@ fn main() {
     println!("  Proof generated using Fiat-Shamir transform\n");
 
     println!("Step 5: Serialize proof for transmission");
-    let proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let proof_bytes = proof.to_bytes();
     println!("  Proof size: {} bytes\n", proof_bytes.len());
 
     println!("Step 6: Deserialize proof");

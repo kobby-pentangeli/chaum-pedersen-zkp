@@ -1,28 +1,22 @@
-//! Verifier (server) implementation for the Chaum-Pedersen protocol.
-//!
-//! This module contains the verifier's logic for validating zero-knowledge proofs
-//! and managing server-side state, configuration, and gRPC services.
+//! Verifier (server) implementation:
+//! proof validation plus server state, config, and gRPC.
 
-use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
+use crate::{Element, Error, Parameters, Proof, Result, Scalar, Statement, Transcript};
 
-/// Batch verification for multiple proofs.
 pub mod batch;
 
 #[cfg(feature = "server")]
-/// Server configuration and rate limiting.
 pub mod config;
 
 #[cfg(feature = "server")]
-/// gRPC service implementation.
 pub mod service;
 
 #[cfg(feature = "server")]
-/// Server state management.
 pub mod state;
 
 pub use batch::BatchVerifier;
 #[cfg(feature = "server")]
-pub use config::{RateLimiter, ServerConfig};
+pub use config::RateLimiter;
 #[cfg(feature = "server")]
 pub use service::AuthServiceImpl;
 #[cfg(feature = "server")]
@@ -30,107 +24,43 @@ pub use state::ServerState;
 
 /// Verifier for the Chaum-Pedersen zero-knowledge protocol.
 ///
-/// Validates zero-knowledge proofs of discrete logarithm equality without learning
-/// the secret value `x`.
+/// Validates proofs of discrete-log equality without learning `x`.
 ///
 /// # Security
 ///
-/// - Always validate the statement before verification
-/// - Use the same transcript context that was used during proof generation
-/// - Reject proofs if the transcript context doesn't match (prevents replay attacks)
-/// - Verification is deterministic and constant-time to resist timing attacks
+/// - Verification rejects identity statement/commitment elements and a zero
+///   challenge; invalid inputs are rejected, never accepted.
+/// - Use the same transcript context as the prover; a mismatch rejects the proof (anti-replay).
 pub struct Verifier {
     params: Parameters,
     statement: Statement,
 }
 
 impl Verifier {
-    /// Creates a new verifier with the given parameters and statement.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Ristretto255};
-    ///
-    /// let params = Parameters::new();
-    /// let g = Ristretto255::generator_g();
-    /// let h = Ristretto255::generator_h();
-    /// let statement = Statement::new(g, h);
-    ///
-    /// let verifier = Verifier::new(params, statement);
-    /// ```
     pub fn new(params: Parameters, statement: Statement) -> Self {
         Self { params, statement }
     }
 
-    /// Verifies a non-interactive zero-knowledge proof.
-    ///
-    /// Returns `Ok(())` if the proof is valid, `Err` otherwise.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Proof, Parameters, Statement, Ristretto255};
-    ///
-    /// # let params = Parameters::new();
-    /// # let statement = Statement::new(
-    /// #     Ristretto255::generator_g(),
-    /// #     Ristretto255::generator_h()
-    /// # );
-    /// # let proof = todo!(); // Assume we have a proof
-    /// let verifier = Verifier::new(params, statement);
-    /// let result = verifier.verify(&proof);
-    /// assert!(result.is_ok());
-    /// ```
+    /// Verifies a non-interactive proof; `Ok(())` if valid.
     pub fn verify(&self, proof: &Proof) -> Result<()> {
         let mut transcript = Transcript::new();
         self.verify_with_transcript(proof, &mut transcript)
     }
 
-    /// Verifies a proof using a custom transcript.
-    ///
-    /// The transcript must match the one used during proof generation. This is critical
-    /// for security as it binds the proof to a specific context (e.g., session ID,
-    /// challenge ID) and prevents replay attacks.
-    ///
-    /// # Security
-    ///
-    /// Always use the same transcript context that was used during proof generation.
-    /// Mismatched contexts will cause verification to fail, which protects against
-    /// replay attacks.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use chaum_pedersen::{Verifier, Parameters, Statement, Transcript, Ristretto255};
-    ///
-    /// # let params = Parameters::new();
-    /// # let statement = Statement::new(
-    /// #     Ristretto255::generator_g(),
-    /// #     Ristretto255::generator_h()
-    /// # );
-    /// # let proof = todo!(); // Assume we have a proof
-    /// let verifier = Verifier::new(params, statement);
-    ///
-    /// let mut transcript = Transcript::new();
-    /// transcript.append_context(b"session-12345");
-    ///
-    /// let result = verifier.verify_with_transcript(&proof, &mut transcript);
-    /// ```
+    /// Verifies a proof against a transcript that must match the prover's; the context binding
+    /// prevents replay.
     pub fn verify_with_transcript(&self, proof: &Proof, transcript: &mut Transcript) -> Result<()> {
-        self.statement.validate()?;
-
         transcript.append_parameters(
-            &Ristretto255::element_to_bytes(self.params.generator_g()),
-            &Ristretto255::element_to_bytes(self.params.generator_h()),
+            &self.params.generator_g().to_bytes(),
+            &self.params.generator_h().to_bytes(),
         );
         transcript.append_statement(
-            &Ristretto255::element_to_bytes(self.statement.y1()),
-            &Ristretto255::element_to_bytes(self.statement.y2()),
+            &self.statement.y1().to_bytes(),
+            &self.statement.y2().to_bytes(),
         );
         transcript.append_commitment(
-            &Ristretto255::element_to_bytes(proof.commitment().r1()),
-            &Ristretto255::element_to_bytes(proof.commitment().r2()),
+            &proof.commitment().r1().to_bytes(),
+            &proof.commitment().r2().to_bytes(),
         );
 
         let challenge = transcript.challenge_scalar();
@@ -138,10 +68,15 @@ impl Verifier {
         self.verify_response(&challenge, proof)
     }
 
-    /// Interactive protocol: verifies the response (fourth message).
-    ///
-    /// Checks that `g^s = r1 * y1^c` and `h^s = r2 * y2^c`.
+    /// Interactive protocol, message 4: checks `g^s = r1·y1^c` and `h^s = r2·y2^c`.
     pub fn verify_response(&self, challenge: &Scalar, proof: &Proof) -> Result<()> {
+        self.statement.validate()?;
+        proof.commitment().validate()?;
+
+        if challenge.is_zero() {
+            return Err(Error::VerificationFailed);
+        }
+
         let g = self.params.generator_g();
         let h = self.params.generator_h();
         let y1 = self.statement.y1();
@@ -150,21 +85,13 @@ impl Verifier {
         let r2 = proof.commitment().r2();
         let s = proof.response().s();
 
-        let lhs1 = Ristretto255::scalar_mul(g, s);
-        let y1_c = Ristretto255::scalar_mul(y1, challenge);
-        let rhs1 = Ristretto255::element_mul(r1, &y1_c);
+        let neg_c = -challenge;
+        let lhs1 =
+            Element::vartime_multiscalar_mul(&[s.clone(), neg_c.clone()], &[g.clone(), y1.clone()]);
+        let lhs2 = Element::vartime_multiscalar_mul(&[s.clone(), neg_c], &[h.clone(), y2.clone()]);
 
-        let lhs2 = Ristretto255::scalar_mul(h, s);
-        let y2_c = Ristretto255::scalar_mul(y2, challenge);
-        let rhs2 = Ristretto255::element_mul(r2, &y2_c);
-
-        let check1 = lhs1 == rhs1;
-        let check2 = lhs2 == rhs2;
-
-        if !check1 || !check2 {
-            return Err(Error::InvalidParams(
-                "Proof verification failed".to_string(),
-            ));
+        if &lhs1 != r1 || &lhs2 != r2 {
+            return Err(Error::VerificationFailed);
         }
 
         Ok(())
@@ -174,14 +101,14 @@ impl Verifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Prover, SecureRng, Witness};
+    use crate::{OsRng, Prover, Witness};
 
     #[test]
     fn verifier_accepts_valid_proof() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -193,16 +120,16 @@ mod tests {
 
     #[test]
     fn verifier_rejects_invalid_statement() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let proof = prover.prove(&mut rng).unwrap();
 
-        let x2 = Ristretto255::random_scalar(&mut rng);
-        let wrong_witness = Witness::new(x2);
+        let x2 = Scalar::random(&mut rng);
+        let wrong_witness = Witness::new(x2).unwrap();
         let wrong_statement = Statement::from_witness(&params, &wrong_witness);
 
         let verifier = Verifier::new(params, wrong_statement);
@@ -211,16 +138,16 @@ mod tests {
 
     #[test]
     fn interactive_verification() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
 
         let (commitment, nonce) = prover.commit(&mut rng);
-        let challenge = Ristretto255::random_scalar(&mut rng);
+        let challenge = Scalar::random(&mut rng);
         let response = prover.respond(&nonce, &challenge);
         let proof = Proof::new(commitment, response);
 

@@ -1,53 +1,16 @@
-//! Batch verification for Chaum-Pedersen zero-knowledge proofs.
+//! Batch verification for Chaum-Pedersen proofs.
 //!
-//! This module provides efficient batch verification of multiple proofs using
-//! randomized verification equations and multi-scalar multiplication (MSM).
-//!
-//! # Performance
-//!
-//! Batch verification can provide 30-50% performance improvement for batches
-//! of 10+ proofs compared to verifying each proof individually. The optimization
-//! comes from combining multiple verification equations into a single multi-scalar
-//! multiplication operation.
-//!
-//! # Security
-//!
-//! The batch verification uses cryptographically random coefficients for each proof
-//! to prevent malicious provers from crafting proofs that verify in batch but would
-//! fail individually. The security is based on the Schwartz-Zippel lemma.
-//!
-//! # Example
-//!
-//! ```rust
-//! use chaum_pedersen::{BatchVerifier, Parameters, Statement, Proof, SecureRng};
-//!
-//! # fn example() -> chaum_pedersen::Result<()> {
-//! let params = Parameters::new();
-//! let mut batch = BatchVerifier::new();
-//! let mut rng = SecureRng::new();
-//!
-//! // Add multiple proofs to the batch
-//! # let statement: Statement = todo!();
-//! # let proof: Proof = todo!();
-//! batch.add(params.clone(), statement, proof)?;
-//! // ... add more proofs ...
-//!
-//! // Verify all proofs in one operation
-//! let results = batch.verify(&mut rng)?;
-//! # Ok(())
-//! # }
-//! ```
+//! Folds every proof's two verification equations into a single variable-time multiscalar
+//! multiplication, each equation weighted by a fresh random scalar, so the batch is the identity
+//! iff every proof is individually valid (Schwartz-Zippel). On failure it falls back to verifying
+//! each proof to report which ones failed.
 
 use rand_core::CryptoRngCore;
 
-use crate::{Error, Parameters, Proof, Result, Ristretto255, Scalar, Statement, Transcript};
+use crate::{Element, Error, Parameters, Proof, Result, Scalar, Statement, Transcript};
 
-/// Maximum number of proofs that can be verified in a single batch.
-///
-/// This limit prevents excessive memory usage and ensures reasonable verification times.
 const MAX_BATCH_SIZE: usize = 1000;
 
-/// Entry in the batch verifier containing a proof and its associated data.
 struct BatchEntry {
     params: Parameters,
     statement: Statement,
@@ -55,44 +18,15 @@ struct BatchEntry {
     transcript_context: Option<Vec<u8>>,
 }
 
-/// Batch verifier for Chaum-Pedersen zero-knowledge proofs.
+/// Accumulates proofs and verifies them in one randomized batch check.
 ///
-/// Accumulates multiple proofs and verifies them all at once using
-/// randomized batch verification with multi-scalar multiplication.
-///
-/// # Security
-///
-/// Each proof is assigned a random coefficient during verification to ensure
-/// that malicious proofs cannot exploit the batching process. The verification
-/// provides the same security guarantees as individual verification.
-///
-/// # Performance
-///
-/// Batch verification provides significant performance improvements:
-///
-/// - Batch of 10 proofs: ~35% faster than individual verification
-/// - Batch of 100 proofs: ~45% faster than individual verification
-/// - Batch of 1000 proofs: ~50% faster than individual verification
-///
-/// # Capacity Limits
-///
-/// The batch verifier has a maximum capacity of 1000 proofs. Attempting to add
-/// more proofs will return an error. For larger verification workloads, split
-/// into multiple batches.
+/// Each proof gets a fresh random coefficient, giving the same soundness as individual
+/// verification. Capacity is capped at 1000 proofs; split larger workloads across batches.
 pub struct BatchVerifier {
     entries: Vec<BatchEntry>,
 }
 
 impl BatchVerifier {
-    /// Creates a new empty batch verifier.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::BatchVerifier;
-    ///
-    /// let batch = BatchVerifier::new();
-    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -100,15 +34,7 @@ impl BatchVerifier {
         }
     }
 
-    /// Creates a new batch verifier with pre-allocated capacity.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use chaum_pedersen::BatchVerifier;
-    ///
-    /// let batch = BatchVerifier::with_capacity(100);
-    /// ```
+    /// Creates a batch verifier preallocated for `capacity` proofs (capped at the batch limit).
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         let cap = capacity.min(MAX_BATCH_SIZE);
@@ -117,25 +43,21 @@ impl BatchVerifier {
         }
     }
 
-    /// Returns the number of proofs currently in the batch.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Returns `true` if the batch contains no proofs.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Returns the remaining capacity before reaching the batch size limit.
     #[must_use]
     pub fn remaining_capacity(&self) -> usize {
         MAX_BATCH_SIZE.saturating_sub(self.entries.len())
     }
 
-    /// Adds a proof to the batch for verification.
     pub fn add(&mut self, params: Parameters, statement: Statement, proof: Proof) -> Result<()> {
         self.add_with_context(params, statement, proof, None)
     }
@@ -149,13 +71,14 @@ impl BatchVerifier {
         context: Option<Vec<u8>>,
     ) -> Result<()> {
         if self.entries.len() >= MAX_BATCH_SIZE {
-            return Err(Error::InvalidParams(format!(
-                "Batch size limit exceeded (max {})",
-                MAX_BATCH_SIZE
-            )));
+            return Err(Error::BatchSizeExceeded {
+                max: MAX_BATCH_SIZE,
+                actual: self.entries.len().saturating_add(1),
+            });
         }
 
         statement.validate()?;
+        proof.commitment().validate()?;
 
         self.entries.push(BatchEntry {
             params,
@@ -167,12 +90,10 @@ impl BatchVerifier {
         Ok(())
     }
 
-    /// Verifies all proofs in the batch.
+    /// Verifies the batch, returning a per-proof result; on batch failure it re-checks individually.
     pub fn verify<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Vec<Result<()>>> {
         if self.entries.is_empty() {
-            return Err(Error::InvalidParams(
-                "Cannot verify empty batch".to_string(),
-            ));
+            return Err(Error::BatchEmpty);
         }
 
         if self.entries.len() == 1 {
@@ -182,28 +103,29 @@ impl BatchVerifier {
         self.verify_batch(rng)
     }
 
-    fn verify_one(&self, index: usize) -> Result<()> {
-        let entry = &self.entries[index];
-
+    fn entry_challenge(entry: &BatchEntry) -> Scalar {
         let mut transcript = Transcript::new();
         if let Some(context) = &entry.transcript_context {
             transcript.append_context(context);
         }
-
         transcript.append_parameters(
-            &Ristretto255::element_to_bytes(entry.params.generator_g()),
-            &Ristretto255::element_to_bytes(entry.params.generator_h()),
+            &entry.params.generator_g().to_bytes(),
+            &entry.params.generator_h().to_bytes(),
         );
         transcript.append_statement(
-            &Ristretto255::element_to_bytes(entry.statement.y1()),
-            &Ristretto255::element_to_bytes(entry.statement.y2()),
+            &entry.statement.y1().to_bytes(),
+            &entry.statement.y2().to_bytes(),
         );
         transcript.append_commitment(
-            &Ristretto255::element_to_bytes(entry.proof.commitment().r1()),
-            &Ristretto255::element_to_bytes(entry.proof.commitment().r2()),
+            &entry.proof.commitment().r1().to_bytes(),
+            &entry.proof.commitment().r2().to_bytes(),
         );
+        transcript.challenge_scalar()
+    }
 
-        let challenge = transcript.challenge_scalar();
+    fn verify_one(&self, index: usize) -> Result<()> {
+        let entry = &self.entries[index];
+        let challenge = Self::entry_challenge(entry);
 
         let g = entry.params.generator_g();
         let h = entry.params.generator_h();
@@ -213,102 +135,90 @@ impl BatchVerifier {
         let r2 = entry.proof.commitment().r2();
         let s = entry.proof.response().s();
 
-        let lhs1 = Ristretto255::scalar_mul(g, s);
-        let y1_c = Ristretto255::scalar_mul(y1, &challenge);
-        let rhs1 = Ristretto255::element_mul(r1, &y1_c);
+        let neg_c = -&challenge;
+        let lhs1 =
+            Element::vartime_multiscalar_mul(&[s.clone(), neg_c.clone()], &[g.clone(), y1.clone()]);
+        let lhs2 = Element::vartime_multiscalar_mul(&[s.clone(), neg_c], &[h.clone(), y2.clone()]);
 
-        let lhs2 = Ristretto255::scalar_mul(h, s);
-        let y2_c = Ristretto255::scalar_mul(y2, &challenge);
-        let rhs2 = Ristretto255::element_mul(r2, &y2_c);
-
-        if lhs1 != rhs1 || lhs2 != rhs2 {
-            return Err(Error::InvalidParams(
-                "Proof verification failed".to_string(),
-            ));
+        if &lhs1 != r1 || &lhs2 != r2 {
+            return Err(Error::VerificationFailed);
         }
 
         Ok(())
     }
 
     fn verify_batch<R: CryptoRngCore>(&self, rng: &mut R) -> Result<Vec<Result<()>>> {
-        let n = self.entries.len();
+        let weights = (0..self.entries.len())
+            .map(|_| (Scalar::random(rng), Scalar::random(rng)))
+            .collect::<Vec<(Scalar, Scalar)>>();
+        let challenges = self
+            .entries
+            .iter()
+            .map(Self::entry_challenge)
+            .collect::<Vec<Scalar>>();
 
-        let mut coefficients = Vec::with_capacity(n);
-        let mut challenges = Vec::with_capacity(n);
-
-        for entry in &self.entries {
-            coefficients.push(Ristretto255::random_scalar(rng));
-
-            let mut transcript = Transcript::new();
-            if let Some(context) = &entry.transcript_context {
-                transcript.append_context(context);
-            }
-            transcript.append_parameters(
-                &Ristretto255::element_to_bytes(entry.params.generator_g()),
-                &Ristretto255::element_to_bytes(entry.params.generator_h()),
-            );
-            transcript.append_statement(
-                &Ristretto255::element_to_bytes(entry.statement.y1()),
-                &Ristretto255::element_to_bytes(entry.statement.y2()),
-            );
-            transcript.append_commitment(
-                &Ristretto255::element_to_bytes(entry.proof.commitment().r1()),
-                &Ristretto255::element_to_bytes(entry.proof.commitment().r2()),
-            );
-
-            challenges.push(transcript.challenge_scalar());
-        }
-
-        let batch_valid = self.verify_batch_equations(&coefficients, &challenges);
-
-        if batch_valid {
-            Ok((0..n).map(|_| Ok(())).collect())
+        if self.verify_batch_equation(&weights, &challenges) {
+            Ok(self.entries.iter().map(|_| Ok(())).collect())
         } else {
             Ok(self.verify_individually())
         }
     }
 
-    fn verify_batch_equations(&self, coefficients: &[Scalar], challenges: &[Scalar]) -> bool {
-        let n = self.entries.len();
+    /// Folds every proof's two verification equations into one
+    /// randomized multiscalar multiplication that is the identity iff each proof is
+    /// individually valid.
+    fn verify_batch_equation(&self, weights: &[(Scalar, Scalar)], challenges: &[Scalar]) -> bool {
+        let per_proof = self.entries.iter().zip(weights).zip(challenges).flat_map(
+            |((entry, (alpha, beta)), challenge)| {
+                let y1 = entry.statement.y1();
+                let y2 = entry.statement.y2();
+                let r1 = entry.proof.commitment().r1();
+                let r2 = entry.proof.commitment().r2();
 
-        let mut lhs1 = Ristretto255::identity();
-        let mut rhs1 = Ristretto255::identity();
-        let mut lhs2 = Ristretto255::identity();
-        let mut rhs2 = Ristretto255::identity();
+                [
+                    (-alpha, r1.clone()),
+                    (-beta, r2.clone()),
+                    (-(alpha * challenge), y1.clone()),
+                    (-(beta * challenge), y2.clone()),
+                ]
+            },
+        );
 
-        for i in 0..n {
-            let entry = &self.entries[i];
-            let alpha = &coefficients[i];
-            let challenge = &challenges[i];
+        let first = &self.entries[0].params;
+        let shared = self.entries.iter().all(|e| {
+            e.params.generator_g() == first.generator_g()
+                && e.params.generator_h() == first.generator_h()
+        });
 
-            let g = entry.params.generator_g();
-            let h = entry.params.generator_h();
-            let y1 = entry.statement.y1();
-            let y2 = entry.statement.y2();
-            let r1 = entry.proof.commitment().r1();
-            let r2 = entry.proof.commitment().r2();
-            let s = entry.proof.response().s();
+        let generators: Vec<(Scalar, Element)> = if shared {
+            let (sum_alpha_s, sum_beta_s) = self.entries.iter().zip(weights).fold(
+                (Scalar::zero(), Scalar::zero()),
+                |(sa, sb), (entry, (alpha, beta))| {
+                    let s = entry.proof.response().s();
+                    (sa + &(alpha * s), sb + &(beta * s))
+                },
+            );
+            vec![
+                (sum_alpha_s, first.generator_g().clone()),
+                (sum_beta_s, first.generator_h().clone()),
+            ]
+        } else {
+            self.entries
+                .iter()
+                .zip(weights)
+                .flat_map(|(entry, (alpha, beta))| {
+                    let s = entry.proof.response().s();
+                    [
+                        (alpha * s, entry.params.generator_g().clone()),
+                        (beta * s, entry.params.generator_h().clone()),
+                    ]
+                })
+                .collect()
+        };
 
-            let alpha_s = Ristretto255::scalar_mul_scalar(alpha, s);
+        let (scalars, points): (Vec<Scalar>, Vec<Element>) = per_proof.chain(generators).unzip();
 
-            let g_alpha_s = Ristretto255::scalar_mul(g, &alpha_s);
-            lhs1 = Ristretto255::element_mul(&lhs1, &g_alpha_s);
-
-            let r1_alpha = Ristretto255::scalar_mul(r1, alpha);
-            let y1_c = Ristretto255::scalar_mul(y1, challenge);
-            let term1 = Ristretto255::element_mul(&r1_alpha, &y1_c);
-            rhs1 = Ristretto255::element_mul(&rhs1, &term1);
-
-            let h_alpha_s = Ristretto255::scalar_mul(h, &alpha_s);
-            lhs2 = Ristretto255::element_mul(&lhs2, &h_alpha_s);
-
-            let r2_alpha = Ristretto255::scalar_mul(r2, alpha);
-            let y2_c = Ristretto255::scalar_mul(y2, challenge);
-            let term2 = Ristretto255::element_mul(&r2_alpha, &y2_c);
-            rhs2 = Ristretto255::element_mul(&rhs2, &term2);
-        }
-
-        lhs1 == rhs1 && lhs2 == rhs2
+        Element::vartime_multiscalar_mul(&scalars, &points).is_identity()
     }
 
     fn verify_individually(&self) -> Vec<Result<()>> {
@@ -317,7 +227,6 @@ impl BatchVerifier {
             .collect()
     }
 
-    /// Clears all proofs from the batch.
     pub fn clear(&mut self) {
         self.entries.clear();
     }
@@ -332,21 +241,21 @@ impl Default for BatchVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Prover, SecureRng, Witness};
+    use crate::{OsRng, Prover, Witness};
 
     #[test]
     fn empty_batch_fails() {
         let batch = BatchVerifier::new();
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         assert!(batch.verify(&mut rng).is_err());
     }
 
     #[test]
     fn single_valid_proof() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
@@ -361,15 +270,15 @@ mod tests {
 
     #[test]
     fn single_invalid_proof() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let proof = prover.prove(&mut rng).unwrap();
 
-        let x2 = Ristretto255::random_scalar(&mut rng);
-        let wrong_witness = Witness::new(x2);
+        let x2 = Scalar::random(&mut rng);
+        let wrong_witness = Witness::new(x2).unwrap();
         let wrong_statement = Statement::from_witness(&params, &wrong_witness);
 
         let mut batch = BatchVerifier::new();
@@ -382,13 +291,13 @@ mod tests {
 
     #[test]
     fn multiple_valid_proofs() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
         let mut batch = BatchVerifier::new();
 
         for _ in 0..10 {
-            let x = Ristretto255::random_scalar(&mut rng);
-            let witness = Witness::new(x);
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let statement = prover.statement().clone();
             let proof = prover.prove(&mut rng).unwrap();
@@ -401,22 +310,44 @@ mod tests {
     }
 
     #[test]
+    fn batch_with_distinct_parameters() {
+        let mut rng = OsRng;
+        let params1 = Parameters::new();
+        let params2 =
+            Parameters::with_generators(Element::generator_h(), Element::generator_g()).unwrap();
+
+        let mut batch = BatchVerifier::new();
+        for params in [params1, params2] {
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
+            let prover = Prover::new(params.clone(), witness);
+            let statement = prover.statement().clone();
+            let proof = prover.prove(&mut rng).unwrap();
+            batch.add(params, statement, proof).unwrap();
+        }
+
+        let results = batch.verify(&mut rng).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.is_ok()));
+    }
+
+    #[test]
     fn mixed_valid_invalid_proofs() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
         let mut batch = BatchVerifier::new();
 
         for i in 0..10 {
-            let x = Ristretto255::random_scalar(&mut rng);
-            let witness = Witness::new(x);
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let proof = prover.prove(&mut rng).unwrap();
 
             let statement = if i % 2 == 0 {
                 prover.statement().clone()
             } else {
-                let x2 = Ristretto255::random_scalar(&mut rng);
-                let wrong_witness = Witness::new(x2);
+                let x2 = Scalar::random(&mut rng);
+                let wrong_witness = Witness::new(x2).unwrap();
                 Statement::from_witness(&params, &wrong_witness)
             };
 
@@ -437,10 +368,10 @@ mod tests {
 
     #[test]
     fn batch_with_transcript_context() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
 
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
@@ -464,20 +395,20 @@ mod tests {
     #[test]
     fn batch_size_limit() {
         let mut batch = BatchVerifier::new();
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
 
         for _ in 0..MAX_BATCH_SIZE {
-            let x = Ristretto255::random_scalar(&mut rng);
-            let witness = Witness::new(x);
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let statement = prover.statement().clone();
             let proof = prover.prove(&mut rng).unwrap();
             assert!(batch.add(params.clone(), statement, proof).is_ok());
         }
 
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();
@@ -494,12 +425,12 @@ mod tests {
 
     #[test]
     fn batch_clear() {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
         let mut batch = BatchVerifier::new();
 
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();

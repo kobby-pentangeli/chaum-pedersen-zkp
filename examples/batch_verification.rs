@@ -1,14 +1,12 @@
 use std::time::Instant;
 
-use chaum_pedersen::{
-    BatchVerifier, Parameters, Prover, Ristretto255, SecureRng, Transcript, Witness,
-};
+use chaum_pedersen::{BatchVerifier, OsRng, Parameters, Prover, Scalar, Transcript, Witness};
 
 fn main() {
     println!("Chaum-Pedersen Zero-Knowledge Protocol: Batch Verification Example");
     println!("==========================================\n");
 
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
     let params = Parameters::new();
 
     println!("Generating 10 proofs...");
@@ -16,8 +14,8 @@ fn main() {
     let mut batch_verifier = BatchVerifier::new();
 
     for i in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
 
@@ -55,51 +53,6 @@ fn main() {
 
     let valid_count = results.iter().filter(|r| r.is_ok()).count();
     println!("\nSummary: {}/{} proofs are valid", valid_count, batch_size);
-
-    println!("\n--- Performance Comparison ---");
-    println!("Comparing batch verification vs individual verification...\n");
-
-    let mut individual_proofs = Vec::new();
-    for _ in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
-        let prover = Prover::new(params.clone(), witness);
-        let statement = prover.statement().clone();
-        let proof = prover.prove(&mut rng).unwrap();
-        let verifier = chaum_pedersen::Verifier::new(params.clone(), statement);
-        individual_proofs.push((verifier, proof));
-    }
-
-    let start = Instant::now();
-    for (verifier, proof) in &individual_proofs {
-        verifier.verify(proof).unwrap();
-    }
-    let individual_duration = start.elapsed();
-
-    let mut batch_verifier = BatchVerifier::new();
-    for _ in 0..batch_size {
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
-        let prover = Prover::new(params.clone(), witness);
-        let statement = prover.statement().clone();
-        let proof = prover.prove(&mut rng).unwrap();
-        batch_verifier
-            .add(params.clone(), statement, proof)
-            .unwrap();
-    }
-
-    let start = Instant::now();
-    batch_verifier.verify(&mut rng).unwrap();
-    let batch_duration = start.elapsed();
-
-    println!("Individual verification: {:?}", individual_duration);
-    println!("Batch verification:      {:?}", batch_duration);
-
-    let speedup = individual_duration.as_nanos() as f64 / batch_duration.as_nanos() as f64;
-    println!("Speedup: {:.2}x faster", speedup);
-
-    if speedup > 1.0 {
-        let improvement = ((speedup - 1.0) * 100.0) as i32;
-        println!("Performance improvement: ~{}%", improvement);
-    }
+    println!("\nFor verification-throughput numbers, run the benchmarks:");
+    println!("  cargo bench --bench batch_verification");
 }

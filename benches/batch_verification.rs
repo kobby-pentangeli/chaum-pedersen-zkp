@@ -1,8 +1,7 @@
 use std::hint::black_box;
 
 use chaum_pedersen::{
-    BatchVerifier, Parameters, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier,
-    Witness,
+    BatchVerifier, OsRng, Parameters, Prover, Scalar, Statement, Transcript, Verifier, Witness,
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -14,13 +13,13 @@ fn bench_batch_verification(c: &mut Criterion) {
             BenchmarkId::new("batch", batch_size),
             batch_size,
             |b, &size| {
-                let mut rng = SecureRng::new();
+                let mut rng = OsRng;
                 let params = Parameters::new();
 
                 let mut batch_verifier = BatchVerifier::new();
                 for _ in 0..size {
-                    let x = Ristretto255::random_scalar(&mut rng);
-                    let witness = Witness::new(x);
+                    let x = Scalar::random(&mut rng);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
                     let proof = prover.prove(&mut rng).unwrap();
@@ -40,13 +39,13 @@ fn bench_batch_verification(c: &mut Criterion) {
             BenchmarkId::new("individual", batch_size),
             batch_size,
             |b, &size| {
-                let mut rng = SecureRng::new();
+                let mut rng = OsRng;
                 let params = Parameters::new();
 
                 let mut proofs = Vec::new();
                 for _ in 0..size {
-                    let x = Ristretto255::random_scalar(&mut rng);
-                    let witness = Witness::new(x);
+                    let x = Scalar::random(&mut rng);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
                     let proof = prover.prove(&mut rng).unwrap();
@@ -74,13 +73,13 @@ fn bench_batch_verification_with_transcript(c: &mut Criterion) {
             BenchmarkId::new("batch", batch_size),
             batch_size,
             |b, &size| {
-                let mut rng = SecureRng::new();
+                let mut rng = OsRng;
                 let params = Parameters::new();
 
                 let mut batch_verifier = BatchVerifier::new();
                 for i in 0..size {
-                    let x = Ristretto255::random_scalar(&mut rng);
-                    let witness = Witness::new(x);
+                    let x = Scalar::random(&mut rng);
+                    let witness = Witness::new(x).unwrap();
                     let prover = Prover::new(params.clone(), witness);
                     let statement = prover.statement().clone();
 
@@ -117,21 +116,21 @@ fn bench_batch_verification_mixed_validity(c: &mut Criterion) {
 
     let batch_size = 50;
     group.bench_function("mixed_valid_invalid", |b| {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
 
         let mut batch_verifier = BatchVerifier::new();
         for i in 0..batch_size {
-            let x = Ristretto255::random_scalar(&mut rng);
-            let witness = Witness::new(x);
+            let x = Scalar::random(&mut rng);
+            let witness = Witness::new(x).unwrap();
             let prover = Prover::new(params.clone(), witness);
             let proof = prover.prove(&mut rng).unwrap();
 
             let statement = if i % 2 == 0 {
                 prover.statement().clone()
             } else {
-                let x2 = Ristretto255::random_scalar(&mut rng);
-                let wrong_witness = Witness::new(x2);
+                let x2 = Scalar::random(&mut rng);
+                let wrong_witness = Witness::new(x2).unwrap();
                 Statement::from_witness(&params, &wrong_witness)
             };
 
@@ -153,11 +152,11 @@ fn bench_batch_add_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_add");
 
     group.bench_function("add_proof_to_batch", |b| {
-        let mut rng = SecureRng::new();
+        let mut rng = OsRng;
         let params = Parameters::new();
 
-        let x = Ristretto255::random_scalar(&mut rng);
-        let witness = Witness::new(x);
+        let x = Scalar::random(&mut rng);
+        let witness = Witness::new(x).unwrap();
         let prover = Prover::new(params.clone(), witness);
         let statement = prover.statement().clone();
         let proof = prover.prove(&mut rng).unwrap();

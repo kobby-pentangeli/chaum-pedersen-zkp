@@ -1,14 +1,15 @@
 use chaum_pedersen::{
-    Parameters, Proof, Prover, Ristretto255, SecureRng, Statement, Transcript, Verifier, Witness,
+    Commitment, Element, OsRng, Parameters, Proof, Prover, Response, Scalar, Statement, Transcript,
+    Verifier, Witness,
 };
 
 #[test]
 fn prevent_replay_attack_with_different_contexts() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript1 = Transcript::new();
@@ -41,10 +42,10 @@ fn prevent_replay_attack_with_different_contexts() {
 #[test]
 fn reject_invalid_proof_corrupted_commitment() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript = Transcript::new();
@@ -52,12 +53,10 @@ fn reject_invalid_proof_corrupted_commitment() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let mut proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let mut proof_bytes = proof.to_bytes();
 
-    let commitment_start = 1;
-    if proof_bytes.len() > commitment_start + 10 {
-        proof_bytes[commitment_start + 5] ^= 0xFF;
-    }
+    // r1 begins at byte 1 (right after the version tag); flip a byte inside it.
+    proof_bytes[6] ^= 0xFF;
 
     if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
@@ -74,10 +73,10 @@ fn reject_invalid_proof_corrupted_commitment() {
 #[test]
 fn reject_invalid_proof_corrupted_response() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript = Transcript::new();
@@ -85,12 +84,11 @@ fn reject_invalid_proof_corrupted_response() {
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let mut proof_bytes = proof.to_bytes().expect("Serialization should succeed");
+    let mut proof_bytes = proof.to_bytes();
 
+    // s occupies the final 32 bytes; flip one of them to corrupt the response.
     let len = proof_bytes.len();
-    if len > 100 {
-        proof_bytes[len - 10] ^= 0xFF;
-    }
+    proof_bytes[len - 10] ^= 0xFF;
 
     if let Ok(corrupted_proof) = Proof::from_bytes(&proof_bytes) {
         let mut verify_transcript = Transcript::new();
@@ -107,14 +105,14 @@ fn reject_invalid_proof_corrupted_response() {
 #[test]
 fn proof_cannot_be_used_for_different_statement() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x1 = Ristretto255::random_scalar(&mut rng);
-    let witness1 = Witness::new(x1);
+    let x1 = Scalar::random(&mut rng);
+    let witness1 = Witness::new(x1).unwrap();
     let _statement1 = Statement::from_witness(&params, &witness1);
 
-    let x2 = Ristretto255::random_scalar(&mut rng);
-    let witness2 = Witness::new(x2);
+    let x2 = Scalar::random(&mut rng);
+    let witness2 = Witness::new(x2).unwrap();
     let statement2 = Statement::from_witness(&params, &witness2);
 
     let mut transcript = Transcript::new();
@@ -133,18 +131,67 @@ fn proof_cannot_be_used_for_different_statement() {
 }
 
 #[test]
-fn detect_identity_element() {
-    let identity = Ristretto255::identity();
-    let statement = Statement::new(identity.clone(), identity.clone());
+fn reject_identity_statement() {
+    let identity = Element::identity();
+
+    assert!(identity.is_identity());
 
     assert!(
-        Ristretto255::is_identity(&identity),
-        "Identity element should be detectable"
+        Statement::new(identity.clone(), identity).is_err(),
+        "Statement::new must reject an identity element (x = 0 is a trivially-known secret)"
     );
+}
+
+#[test]
+fn reject_zero_witness() {
+    let zero = Scalar::from_bytes(&[0u8; 32]).expect("zero is a canonical scalar");
 
     assert!(
-        statement.validate().is_ok(),
-        "Statement validation allows identity (note: this is a known limitation)"
+        Witness::new(zero).is_err(),
+        "Witness::new must reject the zero scalar"
+    );
+}
+
+#[test]
+fn verify_rejects_identity_commitment() {
+    let params = Parameters::new();
+    let mut rng = OsRng;
+
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
+    let statement = Statement::from_witness(&params, &witness);
+
+    let r2 = &Element::generator_h() * &Scalar::random(&mut rng);
+    let commitment = Commitment::new(Element::identity(), r2);
+    let proof = Proof::new(commitment, Response::new(Scalar::random(&mut rng)));
+
+    let verifier = Verifier::new(params, statement);
+    assert!(
+        verifier.verify(&proof).is_err(),
+        "Verification must reject an identity commitment element"
+    );
+}
+
+#[test]
+fn verify_response_rejects_zero_challenge() {
+    let params = Parameters::new();
+    let mut rng = OsRng;
+
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
+    let statement = Statement::from_witness(&params, &witness);
+
+    let prover = Prover::new(params.clone(), witness);
+    let (commitment, nonce) = prover.commit(&mut rng);
+
+    let zero = Scalar::from_bytes(&[0u8; 32]).expect("zero is a canonical scalar");
+    let response = prover.respond(&nonce, &zero);
+    let proof = Proof::new(commitment, response);
+
+    let verifier = Verifier::new(params, statement);
+    assert!(
+        verifier.verify_response(&zero, &proof).is_err(),
+        "A zero challenge drops the y^c binding term and must be rejected"
     );
 }
 
@@ -165,10 +212,10 @@ fn proof_deserialization_rejects_malformed_data() {
 #[test]
 fn multiple_proofs_for_same_witness_are_different() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
     let statement = Statement::from_witness(&params, &witness);
 
     let mut transcript1 = Transcript::new();
@@ -181,8 +228,8 @@ fn multiple_proofs_for_same_witness_are_different() {
         .prove_with_transcript(&mut rng, &mut transcript2)
         .expect("Proof generation should succeed");
 
-    let proof1_bytes = proof1.to_bytes().expect("Serialization should succeed");
-    let proof2_bytes = proof2.to_bytes().expect("Serialization should succeed");
+    let proof1_bytes = proof1.to_bytes();
+    let proof2_bytes = proof2.to_bytes();
 
     assert_ne!(
         proof1_bytes, proof2_bytes,
@@ -209,29 +256,21 @@ fn multiple_proofs_for_same_witness_are_different() {
 }
 
 #[test]
-fn proof_size_is_reasonable() {
+fn proof_size_is_fixed() {
     let params = Parameters::new();
-    let mut rng = SecureRng::new();
+    let mut rng = OsRng;
 
-    let x = Ristretto255::random_scalar(&mut rng);
-    let witness = Witness::new(x);
+    let x = Scalar::random(&mut rng);
+    let witness = Witness::new(x).unwrap();
 
     let mut transcript = Transcript::new();
     let proof = Prover::new(params, witness)
         .prove_with_transcript(&mut rng, &mut transcript)
         .expect("Proof generation should succeed");
 
-    let proof_bytes = proof.to_bytes().expect("Serialization should succeed");
-
-    assert!(
-        proof_bytes.len() < 1024,
-        "Proof size should be less than 1KB, got {} bytes",
-        proof_bytes.len()
-    );
-
-    assert!(
-        proof_bytes.len() > 32,
-        "Proof size should be more than 32 bytes, got {} bytes",
-        proof_bytes.len()
+    assert_eq!(
+        proof.to_bytes().len(),
+        Proof::SIZE,
+        "Proof encoding is the fixed version ‖ r1 ‖ r2 ‖ s layout"
     );
 }

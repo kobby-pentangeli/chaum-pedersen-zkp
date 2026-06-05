@@ -27,10 +27,28 @@ To send a pull request, please:
 
 1. Fork the repository.
 2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for reviewers to focus on your change.
-3. Ensure local tests pass.
+3. Run the full local check suite (see [Local checks](#local-checks)) and ensure it passes with no warnings.
 4. Commit to your fork using clear commit messages.
 5. Send a pull request, answering any default questions in the pull request interface.
 6. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
 
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+
+## Local checks
+
+Before opening a pull request, run the same checks CI enforces. All must pass with no warnings (formatting uses the nightly toolchain):
+
+```bash
+cargo +nightly fmt --all -- --check
+cargo clippy --all-features --all-targets -- -D warnings
+cargo build --release --all-features --all-targets
+cargo test --all-features
+cargo doc --all-features --no-deps --document-private-items
+```
+
+If you change the fuzz targets, also build them on nightly:
+
+```bash
+cargo +nightly fuzz build
+```
