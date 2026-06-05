@@ -1,9 +1,58 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.1.0] - 2026-06-05
+
+Closes soundness gaps, hardens performance claims with more accurate measured numbers, simplifies the proof encoding, and hardens the gRPC server. This release is **breaking** since 1.0.0---both the public API and the wire format change, and the domain-separation tags are de-versioned, so every persisted statement, registration, and credential must be regenerated.
+
+### Breaking changes and migration
+
+- **Proof wire format.** Proofs are now a fixed `version ‖ r1 ‖ r2 ‖ s` layout of **97 bytes** (was a length-prefixed encoding of 109 bytes), exposed as `Proof::SIZE`. The version byte is bumped `1 --> 2`, so a 1.0.0 parser rejects a 1.1.0 proof on the version byte. `Proof::to_bytes` now returns `[u8; Proof::SIZE]` (was `Result<Vec<u8>>`).
+- **De-versioned domain tags (one-time, regenerate everything).** The generator-`h` domain tag, the Merlin protocol label, and the client's Argon2 salt prefix no longer embed a release version; they are rebuilt from a single `CIPHERSUITE = "chaum-pedersen-zkp/ristretto255"` base. This changes the second generator `h`, every Fiat-Shamir challenge, and every password-derived key---**existing registrations and credentials stop verifying and must be re-created.**
+- **Fallible constructors.** `Statement::new` and `Witness::new` now return `Result` (they reject identity statements and the zero witness). `Statement::from_witness` and `Prover::new` stay infallible.
+- **Removed surface.** The `Ristretto255` free-function struct and the `SecureRng` wrapper are gone; use the operator API / inherent methods on `Scalar` and `Element`, and the re-exported `OsRng`.
+- **gRPC API additions (breaking proto).** Two new RPCs---`ValidateSession` and `Logout`---plus `SessionRequest` / `SessionResponse` / `LogoutResponse` messages.
+
+### Added
+
+- **Operator API on `Scalar` / `Element`**: `Add`/`Sub`/`Mul`/`Neg` (with ref/assign variants) and inherent `random` / `to_bytes` / `from_bytes` / generator / validation methods; `generator_h` memoized with `LazyLock`.
+- **Centralized domain module** (`primitives::domain`): all domain-separation tags, built from one `CIPHERSUITE` base; `CIPHERSUITE` is re-exported.
+- **Real multi-scalar-multiplication batch verification**: one randomized combined equation with two independent weights per proof, a shared-generator collapse, and a variable-time MSM; falls back to individual verification to localize failures.
+- **Session lifecycle**: `ValidateSession` (authenticated endpoint) and `Logout` (idempotent revoke) RPCs, backed by `ServerState::validate_session` / `revoke_session`; the client REPL gains `/whoami` and `/logout`.
+- **Per-peer rate limiting**: token buckets keyed by gRPC peer IP, with bounded eviction of idle buckets.
+
+### Changed
+
+- **Typed errors**: `Error` is seven precise, allocation-free variants; server-state failures moved to a dedicated `StateError`.
+- **Dependencies modernized**: gRPC stack to the 0.14 line (`tonic` / `tonic-prost` / `prost` / `tonic-health`), `criterion` 0.8, `metrics-exporter-prometheus` 0.18; MSRV raised to 1.88; Rust 2024 edition.
+- **Single-proof verification** now uses a variable-time multi-scalar multiplication on the public verification data (was constant-time scalar multiplication).
+- **Server cleanup task** flattened from a spawn-inside-spawn-inside-loop to a single `tokio::spawn` with one interval loop.
+- **Tightened gRPC bounds** to exact sizes (`y1`/`y2` --> 32, proof --> `Proof::SIZE`, `challenge_id` --> 32).
+- **Server configuration consolidated onto clap** (CLI flags + `.env` via dotenvy), with all server env vars uniformly `SERVER_`-prefixed (`SERVER_RATE_LIMIT_RPM`, `SERVER_RATE_LIMIT_BURST`, `SERVER_METRICS_ENABLED`, `SERVER_METRICS_PORT`). The unused figment `ServerConfig` / `config/server.toml` layer and the never-wired TLS configuration were removed (real TLS termination is deferred); `.env` is now loaded before argument parsing so it actually takes effect.
+
+### Fixed
+
+- **Batch verification was mathematically wrong in 1.0.0** (it weighted `r1` but not `y1` by the random coefficient), so the fast path never held and every batch silently fell through to slower individual verification. Reimplemented correctly.
+- **Soundness gaps**: identity statement/commitment elements and a zero challenge are now rejected on the verify path; the verifier validates the commitment, not only the statement.
+- Stale generated `src/auth.rs` no longer written into the source tree (`build.rs` emits to `OUT_DIR`); both fuzz targets compile again.
+
+### Security
+
+- Zeroization restricted to the genuinely secret `Witness` / `Nonce`; the public `Response` / `Commitment` are no longer zeroized, and the deprecated `#[zeroize(drop)]` is removed.
+- Registration deliberately requires no proof of possession (a forged statement is useless without `x`; possession is proved at authentication).
+
+### Performance
+
+Measured on a `32GB RAM MacOS Apple M1 Max` machine (`cargo bench`); reproduce locally before quoting.
+
+- Proof generation: ~144 µs
+- Proof verification: ~118 µs (single proof; was ~159 µs constant-time)
+- Statement serialization / deserialization: ~7.5 µs / ~23 µs
+- Proof size: 97 bytes (was 109)
+- Batch verification: faster than individual at every batch size, from ≈26% at 1 proof to ≈59% at 100
+
+---
 
 ## [1.0.0] - 2025-11-28
 
@@ -120,5 +169,6 @@ First major release of the Chaum-Pedersen zero-knowledge proof protocol implemen
 
 Initial project skeleton before v1.0.0 rewrite.
 
+[1.1.0]: https://github.com/kobby-pentangeli/chaum-pedersen-zkp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kobby-pentangeli/chaum-pedersen-zkp/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/kobby-pentangeli/chaum-pedersen-zkp/releases/tag/v0.1.0
