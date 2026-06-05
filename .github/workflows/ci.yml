@@ -111,5 +111,5 @@ jobs:
             . -> target
             fuzz -> fuzz/target
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo install cargo-fuzz
       - run: cargo +nightly fuzz build
